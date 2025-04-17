@@ -1,0 +1,56 @@
+# =============================
+# Skippy Cloud Stack Project
+# Default Git Ignore
+# =============================
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+ENV/
+env/
+.venv/
+
+# PyInstaller output
+dist/
+build/
+*.spec
+
+# VS Code settings
+.vscode/
+
+# MacOS and system files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# YAML output files
+*.yaml
+*.yml
+
+# Logs or runtime cruft
+*.log
+
+# Python egg files
+*.egg-info/
+.eggs/
+
+# Zip exports
+*.zip
+
+# Cache files
+.cache/
+*.bak
+*.tmp
+
+# IPython junk
+.ipynb_checkpoints/
+
+# PyQt Designer UI backup files
+*.ui~
+
+# Ignore the sources directory
+source/
