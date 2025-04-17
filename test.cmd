@@ -1,3 +1,3 @@
-# setup env and fire YAML Builder up
-.\venv\scripts\activate
+@echo off
+cd /d "%~dp0"
 python main.py
