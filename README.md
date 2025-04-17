@@ -1,22 +1,18 @@
-# Skippy Cloud Stack – YAML Builder
+# Skippy Cloud Stack – YAML Builder v2
 
-A friendly PyQt6 app that generates structured YAML input files for use with the Skippy Cloud Stack GPT.
+Now with:
+- Required field validation
+- Phone number input masks
+- Hover-over tooltips
+- Windows-style Help menu
 
 ## 🚀 Setup
 
 ```bash
-# Optional: Create virtualenv
 python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# Install dependencies
+venv\Scripts\activate  # or source venv/bin/activate
 pip install -r requirements.txt
-
-# Run the app
 python main.py
 ```
 
-## 📝 What it Does
-
-- Collects client info, services, cities, map embed, citations
-- Outputs a `client_profile.yaml` file ready for use with ChatGPT or automation scripts
+Create beautiful `client_profile.yaml` files to feed into your Skippy Cloud Stack GPT or automation tools.
