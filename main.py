@@ -1,10 +1,25 @@
 from PyQt6.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QLabel, QLineEdit,
-    QTextEdit, QPushButton, QFileDialog, QMessageBox, QMenuBar, QMainWindow, QMenu
+    QApplication,
+    QWidget,
+    QVBoxLayout,
+    QLabel,
+    QLineEdit,
+    QTextEdit,
+    QPushButton,
+    QFileDialog,
+    QMessageBox,
+    QMenuBar,
+    QMainWindow,
+    QMenu,
+    QDialog,
+    QDialogButtonBox,
 )
+from PyQt6.QtGui import QPixmap
+from PyQt6.QtCore import Qt
 import sys
 import yaml
 import os
+
 
 class YAMLForm(QMainWindow):
     def __init__(self):
@@ -40,7 +55,7 @@ class YAMLForm(QMainWindow):
             "Google Maps Embed Code": QTextEdit(),
             "* Target Cities (comma-separated)": QLineEdit(),
             "* Services (comma-separated)": QLineEdit(),
-            "Social/Citation URLs (one per line)": QTextEdit()
+            "Social/Citation URLs (one per line)": QTextEdit(),
         }
 
         tooltips = {
@@ -53,7 +68,7 @@ class YAMLForm(QMainWindow):
             "Google Maps Embed Code": "Optional. The full iframe embed code from the GBP.",
             "* Target Cities (comma-separated)": "Required. These are the geo targets used for generating cloud pages.",
             "* Services (comma-separated)": "Required. E.g., FHA Loans, VA Loans, Refinance.",
-            "Social/Citation URLs (one per line)": "Optional. Used in JSON-LD sameAs array."
+            "Social/Citation URLs (one per line)": "Optional. Used in JSON-LD sameAs array.",
         }
 
         for label, widget in self.inputs.items():
@@ -71,19 +86,58 @@ class YAMLForm(QMainWindow):
         central_widget.setLayout(layout)
 
     def show_about(self):
-        QMessageBox.information(self, "About", "Skippy Cloud Stack YAML Builder v2\nCreated by Skippy the Magnificent & Big G")
+        about_dialog = QDialog(self)
+        about_dialog.setWindowTitle("About Skippy")
+
+        layout = QVBoxLayout()
+
+        image_path = os.path.join("images", "skippy_the_magnificient.png")
+        if os.path.exists(image_path):
+            pixmap = QPixmap(image_path).scaled(250, 250)
+            image_label = QLabel()
+            image_label.setPixmap(pixmap)
+            image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(image_label)
+
+        text_label = QLabel(
+            "Skippy Cloud Stack YAML Builder v3\nCreated by Skippy the Magnificent & Big G"
+        )
+        text_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(text_label)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        buttons.accepted.connect(about_dialog.accept)
+        layout.addWidget(buttons)
+
+        about_dialog.setLayout(layout)
+        about_dialog.exec()
 
     def show_usage(self):
-        QMessageBox.information(self, "How to Use", "Fill in the form and save a .yaml file.\nRequired fields are marked with '*'.\nPhone must match the (XXX) XXX-XXXX format.")
+        QMessageBox.information(
+            self,
+            "How to Use",
+            "Fill in the form and save a .yaml file.\nRequired fields are marked with '*'.\nPhone must match the (XXX) XXX-XXXX format.",
+        )
 
     def save_yaml(self):
-        required = ["* Client Name", "* Business Category", "* Phone", "* Website", "* Target Cities (comma-separated)", "* Services (comma-separated)"]
+        required = [
+            "* Client Name",
+            "* Business Category",
+            "* Phone",
+            "* Website",
+            "* Target Cities (comma-separated)",
+            "* Services (comma-separated)",
+        ]
         for field in required:
             if not self.inputs[field].text().strip():
-                QMessageBox.warning(self, "Missing Info", f"The field '{field}' is required.")
+                QMessageBox.warning(
+                    self, "Missing Info", f"The field '{field}' is required."
+                )
                 return
 
-        filename, _ = QFileDialog.getSaveFileName(self, "Save YAML File", "client_profile.yaml", "YAML Files (*.yaml *.yml)")
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Save YAML File", "client_profile.yaml", "YAML Files (*.yaml *.yml)"
+        )
         if not filename:
             return
 
@@ -96,25 +150,40 @@ class YAMLForm(QMainWindow):
             "broker": {
                 "name": self.inputs["Broker Name"].text(),
                 "website": self.inputs["Broker Website"].text(),
-                "phone": self.inputs["Broker Phone"].text()
+                "phone": self.inputs["Broker Phone"].text(),
             },
             "address": {
                 "street": self.inputs["Street Address"].text(),
                 "city": self.inputs["City"].text(),
                 "state": self.inputs["State"].text(),
                 "zip": self.inputs["ZIP"].text(),
-                "country": self.inputs["Country"].text()
+                "country": self.inputs["Country"].text(),
             },
             "map_embed": self.inputs["Google Maps Embed Code"].toPlainText(),
-            "cities": [c.strip() for c in self.inputs["* Target Cities (comma-separated)"].text().split(",")],
-            "services": [s.strip() for s in self.inputs["* Services (comma-separated)"].text().split(",")],
-            "sameAs": [u.strip() for u in self.inputs["Social/Citation URLs (one per line)"].toPlainText().splitlines() if u.strip()]
+            "cities": [
+                c.strip()
+                for c in self.inputs["* Target Cities (comma-separated)"]
+                .text()
+                .split(",")
+            ],
+            "services": [
+                s.strip()
+                for s in self.inputs["* Services (comma-separated)"].text().split(",")
+            ],
+            "sameAs": [
+                u.strip()
+                for u in self.inputs["Social/Citation URLs (one per line)"]
+                .toPlainText()
+                .splitlines()
+                if u.strip()
+            ],
         }
 
-        with open(filename, 'w', encoding='utf-8') as f:
+        with open(filename, "w", encoding="utf-8") as f:
             yaml.dump(data, f, sort_keys=False)
 
         QMessageBox.information(self, "Success", f"YAML file saved to:\n{filename}")
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
