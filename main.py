@@ -220,13 +220,10 @@ class YAMLForm(QMainWindow):
                 value = data.get(flat_key, "")
 
             if isinstance(self.inputs[key], QLineEdit):
-                self.inputs[key].setText(
-                    data.get(key.lower().replace("* ", "").replace(" ", "_"), "")
-                )
+                self.inputs[key].setText(value)
             elif isinstance(self.inputs[key], QTextEdit):
-                values = data.get(key.lower().replace("* ", "").replace(" ", "_"), [])
                 self.inputs[key].setPlainText(
-                    "\n".join(values) if isinstance(values, list) else values
+                    "\n".join(value) if isinstance(value, list) else value
                 )
 
     def save_yaml(self):
