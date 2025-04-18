@@ -141,7 +141,7 @@ class YAMLForm(QMainWindow):
         self.layout.addLayout(grid_layout)
 
         self.save_button = QPushButton("Save YAML")
-        self.save_button.setFixedWidth(self.width() * 0.25)
+        self.save_button.setFixedWidth(int(self.width() * 0.25))
         self.save_button.clicked.connect(self.save_yaml)
         self.save_button.setFont(QFont("Arial", self.font_size))
         self.layout.addWidget(self.save_button)
@@ -223,11 +223,9 @@ class YAMLForm(QMainWindow):
                 value = data.get(flat_key, "")
 
             if isinstance(self.inputs[key], QLineEdit):
-                self.inputs[key].setText(
-                    data.get(key.lower().replace("* ", "").replace(" ", "_"), "")
-                )
+                self.inputs[key].setText(value)
             elif isinstance(self.inputs[key], QTextEdit):
-                values = data.get(key.lower().replace("* ", "").replace(" ", "_"), [])
+                values = value
                 self.inputs[key].setPlainText(
                     "\n".join(values) if isinstance(values, list) else values
                 )
