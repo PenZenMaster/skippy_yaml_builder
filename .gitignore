@@ -54,3 +54,8 @@ desktop.ini
 
 # Ignore the sources directory
 source/
+
+# ignore saved yaml files
+*.yaml
+*.yml
+client_yaml/
