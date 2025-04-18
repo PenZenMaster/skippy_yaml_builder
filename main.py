@@ -329,6 +329,17 @@ class YAMLForm(QMainWindow):
             ],
         }
         for key, widget in self.inputs.items():
+            if key in [
+                "Broker Name",
+                "Broker Website",
+                "Broker Phone",
+                "Street Address",
+                "City",
+                "State",
+                "ZIP",
+                "Country",
+            ]:
+                continue  # Already handled in nested structures
             field_key = key.lower().replace("* ", "").replace(" ", "_")
             if isinstance(widget, QLineEdit):
                 data[field_key] = widget.text()
