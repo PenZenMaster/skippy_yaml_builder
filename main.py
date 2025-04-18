@@ -68,6 +68,7 @@ class YAMLForm(QMainWindow):
         view_menu.addAction("Decrease Font Size", self.decrease_font)
         view_menu.addAction("Toggle Dark Mode", self.toggle_dark_mode)
         file_menu = QMenu("File", self)
+        file_menu.addAction("Close", self.close)
         file_menu.addAction("Open YAML", self.load_yaml)
         self.menu_bar.addMenu(file_menu)
         self.menu_bar.addMenu(view_menu)
@@ -94,6 +95,7 @@ class YAMLForm(QMainWindow):
         }
 
         grid_layout = QGridLayout()
+        grid_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         left_fields = [
             "* Client Name",
             "* Business Category",
