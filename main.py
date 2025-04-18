@@ -233,7 +233,14 @@ class YAMLForm(QMainWindow):
                 source_key = flat_key.replace("broker_", "")
                 value = broker.get(source_key, "")
             elif key in ["Street Address", "City", "State", "ZIP", "Country"]:
-                source_key = flat_key
+                address_fields = {
+                    "Street Address": "street",
+                    "City": "city",
+                    "State": "state",
+                    "ZIP": "zip",
+                    "Country": "country",
+                }
+                source_key = address_fields[key]
                 value = address.get(source_key, "")
             else:
                 value = data.get(flat_key, "")
