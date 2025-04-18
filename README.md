@@ -1,19 +1,16 @@
-# Skippy Cloud Stack – YAML Builder v3
+# Skippy YAML Builder v4.1
 
-Includes:
-- Required field validation
-- Phone number input masks
-- Hover-over tooltips
-- Windows-style Help menu
-- Skippy image in About dialog (250x250)
+Now with:
+- Font resizing for labels and fields
+- YAML loading that supports validation/save
+- Multiline inputs for cities and services
+- Folder naming based on client
+- Dark mode
 
-## 🚀 Setup
-
+## To Use:
 ```bash
 python -m venv venv
-venv\Scripts\activate  # or source venv/bin/activate
+venv\Scripts\activate
 pip install -r requirements.txt
 python main.py
 ```
-
-Make sure to place `skippy_the_magnificient.png` inside an `images/` folder.

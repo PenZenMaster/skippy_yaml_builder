@@ -29,6 +29,7 @@ class YAMLForm(QMainWindow):
         self.setGeometry(200, 200, 650, 750)
         self.font_size = 10
         self.dark_mode = False
+        self.labels = {}  # Store labels for font update
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -75,6 +76,7 @@ class YAMLForm(QMainWindow):
             widget.setFont(QFont("Arial", self.font_size))
             self.layout.addWidget(lbl)
             self.layout.addWidget(widget)
+            self.labels[label] = lbl
             if "Phone" in label:
                 widget.setInputMask("(000) 000-0000;_")
 
@@ -85,12 +87,13 @@ class YAMLForm(QMainWindow):
 
         central_widget.setLayout(self.layout)
 
-    def toggle_dark_mode(self):
-        self.dark_mode = not self.dark_mode
-        if self.dark_mode:
-            self.setStyleSheet("background-color: #2b2b2b; color: white;")
-        else:
-            self.setStyleSheet("")
+    def refresh_fonts(self):
+        for label, widget in self.inputs.items():
+            font = QFont("Arial", self.font_size)
+            widget.setFont(font)
+            if label in self.labels:
+                self.labels[label].setFont(font)
+        self.save_button.setFont(QFont("Arial", self.font_size))
 
     def increase_font(self):
         self.font_size += 1
@@ -101,39 +104,12 @@ class YAMLForm(QMainWindow):
             self.font_size -= 1
             self.refresh_fonts()
 
-    def refresh_fonts(self):
-        for label, widget in self.inputs.items():
-            widget.setFont(QFont("Arial", self.font_size))
-        self.save_button.setFont(QFont("Arial", self.font_size))
-
-    def show_about(self):
-        about_dialog = QDialog(self)
-        about_dialog.setWindowTitle("About Skippy")
-        layout = QVBoxLayout()
-        image_path = os.path.join("images", "skippy_the_magnificient.png")
-        if os.path.exists(image_path):
-            pixmap = QPixmap(image_path).scaled(250, 250)
-            image_label = QLabel()
-            image_label.setPixmap(pixmap)
-            image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            layout.addWidget(image_label)
-        text_label = QLabel(
-            "Skippy Cloud Stack YAML Builder v4\nCreated by Skippy the Magnificent & Big G"
-        )
-        text_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(text_label)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
-        buttons.accepted.connect(about_dialog.accept)
-        layout.addWidget(buttons)
-        about_dialog.setLayout(layout)
-        about_dialog.exec()
-
-    def show_usage(self):
-        QMessageBox.information(
-            self,
-            "How to Use",
-            "Fill in the form and save a .yaml file.\nRequired fields are marked with '*'.\nPhone must match the (XXX) XXX-XXXX format.",
-        )
+    def toggle_dark_mode(self):
+        self.dark_mode = not self.dark_mode
+        if self.dark_mode:
+            self.setStyleSheet("background-color: #2b2b2b; color: white;")
+        else:
+            self.setStyleSheet("")
 
     def sanitize_filename(self, name):
         name = name.lower()
@@ -150,11 +126,12 @@ class YAMLForm(QMainWindow):
             "* Services (one per line)",
         ]
         for field in required:
-            if (
-                not self.inputs[field].toPlainText().strip()
+            value = (
+                self.inputs[field].toPlainText().strip()
                 if isinstance(self.inputs[field], QTextEdit)
                 else self.inputs[field].text().strip()
-            ):
+            )
+            if not value:
                 QMessageBox.warning(
                     self, "Missing Info", f"The field '{field}' is required."
                 )
@@ -231,25 +208,22 @@ class YAMLForm(QMainWindow):
             return
         with open(filename, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
-        # Set field values
+
         self.inputs["* Client Name"].setText(data.get("client_name", ""))
         self.inputs["* Business Category"].setText(data.get("category", ""))
         self.inputs["* Phone"].setText(data.get("phone", ""))
         self.inputs["Email"].setText(data.get("email", ""))
         self.inputs["* Website"].setText(data.get("website", ""))
-
         broker = data.get("broker", {})
         self.inputs["Broker Name"].setText(broker.get("name", ""))
         self.inputs["Broker Website"].setText(broker.get("website", ""))
         self.inputs["Broker Phone"].setText(broker.get("phone", ""))
-
         address = data.get("address", {})
         self.inputs["Street Address"].setText(address.get("street", ""))
         self.inputs["City"].setText(address.get("city", ""))
         self.inputs["State"].setText(address.get("state", ""))
         self.inputs["ZIP"].setText(address.get("zip", ""))
         self.inputs["Country"].setText(address.get("country", ""))
-
         self.inputs["Google Maps Embed Code"].setPlainText(data.get("map_embed", ""))
         self.inputs["* Target Cities (one per line)"].setPlainText(
             "\n".join(data.get("cities", []))
@@ -259,6 +233,35 @@ class YAMLForm(QMainWindow):
         )
         self.inputs["Social/Citation URLs (one per line)"].setPlainText(
             "\n".join(data.get("sameAs", []))
+        )
+
+    def show_about(self):
+        about_dialog = QDialog(self)
+        about_dialog.setWindowTitle("About Skippy")
+        layout = QVBoxLayout()
+        image_path = os.path.join("images", "skippy_the_magnificient.png")
+        if os.path.exists(image_path):
+            pixmap = QPixmap(image_path).scaled(250, 250)
+            image_label = QLabel()
+            image_label.setPixmap(pixmap)
+            image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(image_label)
+        text_label = QLabel(
+            "Skippy Cloud Stack YAML Builder v4\nCreated by Skippy the Magnificent & Big G"
+        )
+        text_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(text_label)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        buttons.accepted.connect(about_dialog.accept)
+        layout.addWidget(buttons)
+        about_dialog.setLayout(layout)
+        about_dialog.exec()
+
+    def show_usage(self):
+        QMessageBox.information(
+            self,
+            "How to Use",
+            "Fill in the form and save a .yaml file.\nRequired fields are marked with '*'.\nPhone must match the (XXX) XXX-XXXX format.",
         )
 
 
