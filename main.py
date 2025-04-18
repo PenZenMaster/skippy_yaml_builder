@@ -1,18 +1,27 @@
+"""
+Module/Script Name: main.py
+
+Description:
+Skippy Cloud Stack YAML Builder – GUI tool for creating structured YAML profiles
+for city-specific cloud pages. Includes two-column layout, validation, dark mode,
+and file management.
+
+Author(s):
+Skippy the Magnificent with an eensy weensy bit of help from that filthy monkey, Big G
+
+Created Date:
+2025-04-17
+
+Last Modified Date:
+2025-04-17
+
+Comments:
+- Version 4.2: Grid layout, nested YAML loading, dark mode, and font control.
+"""
+
 from PyQt6.QtWidgets import (
-    QApplication,
-    QWidget,
-    QVBoxLayout,
-    QLabel,
-    QLineEdit,
-    QTextEdit,
-    QPushButton,
-    QFileDialog,
-    QMessageBox,
-    QMenuBar,
-    QMainWindow,
-    QMenu,
-    QDialog,
-    QDialogButtonBox,
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QTextEdit, QPushButton,
+    QFileDialog, QMessageBox, QMenuBar, QMainWindow, QMenu, QDialog, QDialogButtonBox, QGridLayout
 )
 from PyQt6.QtGui import QPixmap, QFont
 from PyQt6.QtCore import Qt
@@ -21,12 +30,11 @@ import yaml
 import os
 import re
 
-
 class YAMLForm(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Skippy Cloud Stack – YAML Builder v4")
-        self.setGeometry(200, 200, 650, 750)
+        self.setGeometry(200, 200, 1100, 800)
         self.font_size = 10
         self.dark_mode = False
         self.labels = {}  # Store labels for font update
@@ -56,29 +64,52 @@ class YAMLForm(QMainWindow):
             "* Phone": QLineEdit(),
             "Email": QLineEdit(),
             "* Website": QLineEdit(),
-            "Broker Name": QLineEdit(),
-            "Broker Website": QLineEdit(),
-            "Broker Phone": QLineEdit(),
             "Street Address": QLineEdit(),
             "City": QLineEdit(),
             "State": QLineEdit(),
             "ZIP": QLineEdit(),
             "Country": QLineEdit(),
+            "Broker Name": QLineEdit(),
+            "Broker Website": QLineEdit(),
+            "Broker Phone": QLineEdit(),
             "Google Maps Embed Code": QTextEdit(),
             "* Target Cities (one per line)": QTextEdit(),
             "* Services (one per line)": QTextEdit(),
-            "Social/Citation URLs (one per line)": QTextEdit(),
+            "Social/Citation URLs (one per line)": QTextEdit()
         }
 
-        for label, widget in self.inputs.items():
-            lbl = QLabel(label)
+        grid_layout = QGridLayout()
+        left_fields = [
+            "* Client Name", "* Business Category", "* Phone", "Email",
+            "* Website", "Street Address", "City", "State", "ZIP", "Country"
+        ]
+        right_fields = [
+            "Broker Name", "Broker Website", "Broker Phone",
+            "Google Maps Embed Code", "* Target Cities (one per line)",
+            "* Services (one per line)", "Social/Citation URLs (one per line)"
+        ]
+
+        for i, key in enumerate(left_fields):
+            lbl = QLabel(key)
             lbl.setFont(QFont("Arial", self.font_size))
+            widget = self.inputs[key]
             widget.setFont(QFont("Arial", self.font_size))
-            self.layout.addWidget(lbl)
-            self.layout.addWidget(widget)
-            self.labels[label] = lbl
-            if "Phone" in label:
+            self.labels[key] = lbl
+            if "Phone" in key:
                 widget.setInputMask("(000) 000-0000;_")
+            grid_layout.addWidget(lbl, i, 0)
+            grid_layout.addWidget(widget, i, 1)
+
+        for i, key in enumerate(right_fields):
+            lbl = QLabel(key)
+            lbl.setFont(QFont("Arial", self.font_size))
+            widget = self.inputs[key]
+            widget.setFont(QFont("Arial", self.font_size))
+            self.labels[key] = lbl
+            grid_layout.addWidget(lbl, i, 2)
+            grid_layout.addWidget(widget, i, 3)
+
+        self.layout.addLayout(grid_layout)
 
         self.save_button = QPushButton("Save YAML")
         self.save_button.clicked.connect(self.save_yaml)
@@ -86,14 +117,6 @@ class YAMLForm(QMainWindow):
         self.layout.addWidget(self.save_button)
 
         central_widget.setLayout(self.layout)
-
-    def refresh_fonts(self):
-        for label, widget in self.inputs.items():
-            font = QFont("Arial", self.font_size)
-            widget.setFont(font)
-            if label in self.labels:
-                self.labels[label].setFont(font)
-        self.save_button.setFont(QFont("Arial", self.font_size))
 
     def increase_font(self):
         self.font_size += 1
@@ -104,136 +127,17 @@ class YAMLForm(QMainWindow):
             self.font_size -= 1
             self.refresh_fonts()
 
+    def refresh_fonts(self):
+        for label, widget in self.inputs.items():
+            font = QFont("Arial", self.font_size)
+            widget.setFont(font)
+            if label in self.labels:
+                self.labels[label].setFont(font)
+        self.save_button.setFont(QFont("Arial", self.font_size))
+
     def toggle_dark_mode(self):
         self.dark_mode = not self.dark_mode
-        if self.dark_mode:
-            self.setStyleSheet("background-color: #2b2b2b; color: white;")
-        else:
-            self.setStyleSheet("")
-
-    def sanitize_filename(self, name):
-        name = name.lower()
-        name = re.sub(r"[^a-z0-9_]+", "_", name.strip())
-        return name.strip("_")
-
-    def save_yaml(self):
-        required = [
-            "* Client Name",
-            "* Business Category",
-            "* Phone",
-            "* Website",
-            "* Target Cities (one per line)",
-            "* Services (one per line)",
-        ]
-        for field in required:
-            value = (
-                self.inputs[field].toPlainText().strip()
-                if isinstance(self.inputs[field], QTextEdit)
-                else self.inputs[field].text().strip()
-            )
-            if not value:
-                QMessageBox.warning(
-                    self, "Missing Info", f"The field '{field}' is required."
-                )
-                return
-
-        client_name = self.inputs["* Client Name"].text().strip()
-        folder_name = self.sanitize_filename(client_name)
-        save_dir = os.path.join(os.getcwd(), folder_name)
-        os.makedirs(save_dir, exist_ok=True)
-        save_path = os.path.join(save_dir, "client_profile.yaml")
-
-        if os.path.exists(save_path):
-            reply = QMessageBox.question(
-                self,
-                "Overwrite?",
-                f"The file already exists in {folder_name}. Overwrite?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            )
-            if reply != QMessageBox.StandardButton.Yes:
-                return
-
-        data = {
-            "client_name": client_name,
-            "category": self.inputs["* Business Category"].text(),
-            "phone": self.inputs["* Phone"].text(),
-            "email": self.inputs["Email"].text(),
-            "website": self.inputs["* Website"].text(),
-            "broker": {
-                "name": self.inputs["Broker Name"].text(),
-                "website": self.inputs["Broker Website"].text(),
-                "phone": self.inputs["Broker Phone"].text(),
-            },
-            "address": {
-                "street": self.inputs["Street Address"].text(),
-                "city": self.inputs["City"].text(),
-                "state": self.inputs["State"].text(),
-                "zip": self.inputs["ZIP"].text(),
-                "country": self.inputs["Country"].text(),
-            },
-            "map_embed": self.inputs["Google Maps Embed Code"].toPlainText(),
-            "cities": [
-                c.strip()
-                for c in self.inputs["* Target Cities (one per line)"]
-                .toPlainText()
-                .splitlines()
-                if c.strip()
-            ],
-            "services": [
-                s.strip()
-                for s in self.inputs["* Services (one per line)"]
-                .toPlainText()
-                .splitlines()
-                if s.strip()
-            ],
-            "sameAs": [
-                u.strip()
-                for u in self.inputs["Social/Citation URLs (one per line)"]
-                .toPlainText()
-                .splitlines()
-                if u.strip()
-            ],
-        }
-
-        with open(save_path, "w", encoding="utf-8") as f:
-            yaml.dump(data, f, sort_keys=False)
-
-        QMessageBox.information(self, "Success", f"YAML file saved to:\n{save_path}")
-
-    def load_yaml(self):
-        filename, _ = QFileDialog.getOpenFileName(
-            self, "Open YAML File", "", "YAML Files (*.yaml *.yml)"
-        )
-        if not filename:
-            return
-        with open(filename, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-
-        self.inputs["* Client Name"].setText(data.get("client_name", ""))
-        self.inputs["* Business Category"].setText(data.get("category", ""))
-        self.inputs["* Phone"].setText(data.get("phone", ""))
-        self.inputs["Email"].setText(data.get("email", ""))
-        self.inputs["* Website"].setText(data.get("website", ""))
-        broker = data.get("broker", {})
-        self.inputs["Broker Name"].setText(broker.get("name", ""))
-        self.inputs["Broker Website"].setText(broker.get("website", ""))
-        self.inputs["Broker Phone"].setText(broker.get("phone", ""))
-        address = data.get("address", {})
-        self.inputs["Street Address"].setText(address.get("street", ""))
-        self.inputs["City"].setText(address.get("city", ""))
-        self.inputs["State"].setText(address.get("state", ""))
-        self.inputs["ZIP"].setText(address.get("zip", ""))
-        self.inputs["Country"].setText(address.get("country", ""))
-        self.inputs["Google Maps Embed Code"].setPlainText(data.get("map_embed", ""))
-        self.inputs["* Target Cities (one per line)"].setPlainText(
-            "\n".join(data.get("cities", []))
-        )
-        self.inputs["* Services (one per line)"].setPlainText(
-            "\n".join(data.get("services", []))
-        )
-        self.inputs["Social/Citation URLs (one per line)"].setPlainText(
-            "\n".join(data.get("sameAs", []))
-        )
+        self.setStyleSheet("background-color: #2b2b2b; color: white;" if self.dark_mode else "")
 
     def show_about(self):
         about_dialog = QDialog(self)
@@ -246,9 +150,7 @@ class YAMLForm(QMainWindow):
             image_label.setPixmap(pixmap)
             image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             layout.addWidget(image_label)
-        text_label = QLabel(
-            "Skippy Cloud Stack YAML Builder v4\nCreated by Skippy the Magnificent & Big G"
-        )
+        text_label = QLabel("Skippy Cloud Stack YAML Builder v4\nCreated by Skippy the Magnificent & Big G")
         text_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(text_label)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
@@ -258,12 +160,71 @@ class YAMLForm(QMainWindow):
         about_dialog.exec()
 
     def show_usage(self):
-        QMessageBox.information(
-            self,
-            "How to Use",
-            "Fill in the form and save a .yaml file.\nRequired fields are marked with '*'.\nPhone must match the (XXX) XXX-XXXX format.",
-        )
+        QMessageBox.information(self, "How to Use", "Fill in the form and save a .yaml file.\nRequired fields are marked with '*'.\nPhone must match the (XXX) XXX-XXXX format.")
 
+    def load_yaml(self):
+        filename, _ = QFileDialog.getOpenFileName(self, "Open YAML File", "", "YAML Files (*.yaml *.yml)")
+        if not filename:
+            return
+        with open(filename, 'r', encoding='utf-8') as f:
+            data = yaml.safe_load(f)
+
+        broker = data.get("broker", {})
+        address = data.get("address", {})
+                for key in self.inputs:
+            flat_key = key.lower().replace('* ', '').replace(' ', '_')
+            if key.startswith("Broker"):
+                source_key = flat_key.replace('broker_', '')
+                value = broker.get(source_key, "")
+            elif key in ["Street Address", "City", "State", "ZIP", "Country"]:
+                source_key = flat_key
+                value = address.get(source_key, "")
+            else:
+                value = data.get(flat_key, "")
+
+            if isinstance(self.inputs[key], QLineEdit):
+                self.inputs[key].setText(data.get(key.lower().replace('* ', '').replace(' ', '_'), ""))
+            elif isinstance(self.inputs[key], QTextEdit):
+                values = data.get(key.lower().replace('* ', '').replace(' ', '_'), [])
+                self.inputs[key].setPlainText("\n".join(values) if isinstance(values, list) else values)
+
+    def save_yaml(self):
+        required = [
+            "* Client Name", "* Business Category", "* Phone",
+            "* Website", "* Target Cities (one per line)", "* Services (one per line)"
+        ]
+        for field in required:
+            widget = self.inputs[field]
+            value = widget.toPlainText().strip() if isinstance(widget, QTextEdit) else widget.text().strip()
+            if not value:
+                QMessageBox.warning(self, "Missing Info", f"The field '{field}' is required.")
+                return
+
+        client_name = self.inputs["* Client Name"].text().strip()
+        folder_name = re.sub(r'[^a-z0-9_]+', '_', client_name.lower()).strip('_')
+        save_dir = os.path.join(os.getcwd(), folder_name)
+        os.makedirs(save_dir, exist_ok=True)
+        save_path = os.path.join(save_dir, "client_profile.yaml")
+
+        if os.path.exists(save_path):
+            reply = QMessageBox.question(self, "Overwrite?", f"The file already exists in {folder_name}. Overwrite?",
+                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+        data = {}
+        for key, widget in self.inputs.items():
+            field_key = key.lower().replace('* ', '').replace(' ', '_')
+            if isinstance(widget, QLineEdit):
+                data[field_key] = widget.text()
+            elif isinstance(widget, QTextEdit):
+                lines = widget.toPlainText().splitlines()
+                data[field_key] = [line.strip() for line in lines if line.strip()]
+
+        with open(save_path, 'w', encoding='utf-8') as f:
+            yaml.dump(data, f, sort_keys=False)
+
+        QMessageBox.information(self, "Success", f"YAML file saved to:\n{save_path}")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

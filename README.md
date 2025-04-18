@@ -1,13 +1,12 @@
-# Skippy YAML Builder v4.1
+# Skippy YAML Builder v4 – Grid Layout Edition
 
-Now with:
-- Font resizing for labels and fields
-- YAML loading that supports validation/save
-- Multiline inputs for cities and services
-- Folder naming based on client
-- Dark mode
+Includes:
+- Two-column form layout
+- Responsive font control
+- Modular section grouping
+- Map Embed, Services, Cities, and Broker fields refactored to right column
 
-## To Use:
+To run:
 ```bash
 python -m venv venv
 venv\Scripts\activate
