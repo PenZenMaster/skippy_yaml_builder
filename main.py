@@ -220,13 +220,17 @@ class YAMLForm(QMainWindow):
                 value = data.get(flat_key, "")
 
             if isinstance(self.inputs[key], QLineEdit):
-                self.inputs[key].setText(value)
+                self.inputs[key].setText(
+                    data.get(key.lower().replace("* ", "").replace(" ", "_"), "")
+                )
             elif isinstance(self.inputs[key], QTextEdit):
+                values = data.get(key.lower().replace("* ", "").replace(" ", "_"), [])
                 self.inputs[key].setPlainText(
-                    "\n".join(value) if isinstance(value, list) else value
+                    "\n".join(values) if isinstance(values, list) else values
                 )
 
     def save_yaml(self):
+        # NOTE: Location Page Builder may need to be updated to support nested 'address' and 'broker' blocks
         required = [
             "* Client Name",
             "* Business Category",
@@ -264,7 +268,47 @@ class YAMLForm(QMainWindow):
             if reply != QMessageBox.StandardButton.Yes:
                 return
 
-        data = {}
+        data = {
+            "client_name": client_name,
+            "category": self.inputs["* Business Category"].text(),
+            "phone": self.inputs["* Phone"].text(),
+            "email": self.inputs["Email"].text(),
+            "website": self.inputs["* Website"].text(),
+            "broker": {
+                "name": self.inputs["Broker Name"].text(),
+                "website": self.inputs["Broker Website"].text(),
+                "phone": self.inputs["Broker Phone"].text(),
+            },
+            "address": {
+                "street": self.inputs["Street Address"].text(),
+                "city": self.inputs["City"].text(),
+                "state": self.inputs["State"].text(),
+                "zip": self.inputs["ZIP"].text(),
+                "country": self.inputs["Country"].text(),
+            },
+            "map_embed": self.inputs["Google Maps Embed Code"].toPlainText(),
+            "cities": [
+                c.strip()
+                for c in self.inputs["* Target Cities (one per line)"]
+                .toPlainText()
+                .splitlines()
+                if c.strip()
+            ],
+            "services": [
+                s.strip()
+                for s in self.inputs["* Services (one per line)"]
+                .toPlainText()
+                .splitlines()
+                if s.strip()
+            ],
+            "sameAs": [
+                u.strip()
+                for u in self.inputs["Social/Citation URLs (one per line)"]
+                .toPlainText()
+                .splitlines()
+                if u.strip()
+            ],
+        }
         for key, widget in self.inputs.items():
             field_key = key.lower().replace("* ", "").replace(" ", "_")
             if isinstance(widget, QLineEdit):
