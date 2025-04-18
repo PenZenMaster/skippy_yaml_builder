@@ -68,8 +68,8 @@ class YAMLForm(QMainWindow):
         view_menu.addAction("Decrease Font Size", self.decrease_font)
         view_menu.addAction("Toggle Dark Mode", self.toggle_dark_mode)
         file_menu = QMenu("File", self)
-        file_menu.addAction("Close", self.close)
         file_menu.addAction("Open YAML", self.load_yaml)
+        file_menu.addAction("Close", self.close)
         self.menu_bar.addMenu(file_menu)
         self.menu_bar.addMenu(view_menu)
         self.menu_bar.addMenu(help_menu)
@@ -141,6 +141,7 @@ class YAMLForm(QMainWindow):
         self.layout.addLayout(grid_layout)
 
         self.save_button = QPushButton("Save YAML")
+        self.save_button.setFixedWidth(self.width() * 0.25)
         self.save_button.clicked.connect(self.save_yaml)
         self.save_button.setFont(QFont("Arial", self.font_size))
         self.layout.addWidget(self.save_button)
@@ -256,7 +257,9 @@ class YAMLForm(QMainWindow):
 
         client_name = self.inputs["* Client Name"].text().strip()
         folder_name = re.sub(r"[^a-z0-9_]+", "_", client_name.lower()).strip("_")
-        save_dir = os.path.join(os.getcwd(), folder_name)
+        save_root = os.path.join(os.getcwd(), "client_yaml")
+        os.makedirs(save_root, exist_ok=True)
+        save_dir = os.path.join(save_root, folder_name)
         os.makedirs(save_dir, exist_ok=True)
         save_path = os.path.join(save_dir, "client_profile.yaml")
 
