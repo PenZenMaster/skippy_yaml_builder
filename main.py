@@ -1,113 +1,28 @@
+
 from PyQt6.QtWidgets import (
-    QApplication,
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QTextEdit,
-    QPushButton,
-    QFileDialog,
-    QMessageBox,
-    QMenuBar,
-    QMainWindow,
-    QMenu,
-    QDialog,
-    QDialogButtonBox,
-    QGridLayout,
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QTextEdit, QPushButton,
+    QFileDialog, QMessageBox, QMenuBar, QMainWindow, QMenu, QListWidget, QListWidgetItem, QGridLayout
 )
-from PyQt6.QtGui import QPixmap, QFont
+from PyQt6.QtGui import QFont
 from PyQt6.QtCore import Qt
 import sys
 import yaml
-import os
-import re
+from city_embed_dialog import CityEmbedDialog
 
 
 class YAMLForm(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Skippy Cloud Stack – YAML Builder v4")
-
-    def increase_font(self):
-        self.font_size += 1
-        self.update_fonts()
-
-    def decrease_font(self):
-        if self.font_size > 1:
-            self.font_size -= 1
-            self.update_fonts()
-
-    def toggle_dark_mode(self):
-        self.dark_mode = not self.dark_mode
-        if self.dark_mode:
-            self.setStyleSheet("QWidget { background-color: #2e2e2e; color: #f0f0f0; }")
-        else:
-            self.setStyleSheet("")
-
-    def update_fonts(self):
-        for key, label in self.labels.items():
-            label.setFont(QFont("Arial", self.font_size))
-        for key, widget in self.inputs.items():
-            widget.setFont(QFont("Arial", self.font_size))
-        self.save_button.setFont(QFont("Arial", self.font_size))
-
-    def show_about(self):
-        QMessageBox.information(
-            self, "About", "Skippy Cloud Stack – YAML Builder v4\nCreated by Your Name"
-        )
-
-    def show_usage(self):
-        QMessageBox.information(
-            self,
-            "How to Use",
-            "Fill in the required fields and click 'Save YAML' to export your configuration.\n"
-            "Fields marked with * are required. Use the menu to open existing YAML files or adjust the view.",
-        )
-
         self.setGeometry(200, 200, 1100, 800)
         self.font_size = 10
         self.dark_mode = False
-        self.labels = {}  # Store labels for font update
+        self.labels = {}
+        self.city_data = {}
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         self.main_layout = QVBoxLayout()
-
-        self.menu_bar = QMenuBar()
-        self.setMenuBar(self.menu_bar)
-        help_menu = QMenu("Help", self)
-        help_menu.addAction("About", self.show_about)
-        help_menu.addAction("How to Use", self.show_usage)
-        view_menu = QMenu("View", self)
-        view_menu.addAction("Increase Font Size", self.increase_font)
-        view_menu.addAction("Decrease Font Size", self.decrease_font)
-        view_menu.addAction("Toggle Dark Mode", self.toggle_dark_mode)
-        file_menu = QMenu("File", self)
-        file_menu.addAction("Open YAML", self.load_yaml)
-        self.menu_bar.addMenu(file_menu)
-        self.menu_bar.addMenu(view_menu)
-        self.menu_bar.addMenu(help_menu)
-
-        def load_yaml(self):
-            file_name, _ = QFileDialog.getOpenFileName(
-                self, "Open YAML File", "", "YAML Files (*.yaml *.yml)"
-            )
-            if file_name:
-                try:
-                    with open(file_name, "r") as file:
-                        data = yaml.safe_load(file)
-                    # Populate fields if keys match input names
-                    for key in self.inputs:
-                        if key in data:
-                            if isinstance(self.inputs[key], QTextEdit):
-                                self.inputs[key].setPlainText(str(data[key]))
-                            else:
-                                self.inputs[key].setText(str(data[key]))
-                except Exception as e:
-                    QMessageBox.critical(
-                        self, "Error", f"Failed to load YAML file:\n{e}"
-                    )
 
         self.inputs = {
             "* Client Name": QLineEdit(),
@@ -127,43 +42,29 @@ class YAMLForm(QMainWindow):
             "* Target Cities (one per line)": QTextEdit(),
             "* Services (one per line)": QTextEdit(),
             "Social/Citation URLs (one per line)": QTextEdit(),
+            "Hero Image URL": QLineEdit(),
+            "City Page Hero Image Base URL": QLineEdit(),
+            "Logo URL": QLineEdit(),
+            "Contact Email Address": QLineEdit(),
+            "Primary Business Category": QLineEdit(),
+            "FAQ Questions (one per line)": QTextEdit()
         }
 
-        # New Fields (Extended Data)
-        self.inputs["Hero Image URL"] = QLineEdit()
-        self.inputs["City Page Hero Image Base URL"] = QLineEdit()
-        self.inputs["Logo URL"] = QLineEdit()
-        self.inputs["Contact Email Address"] = QLineEdit()
-        self.inputs["Primary Business Category"] = (
-            QLineEdit()
-        )  # Will be upgraded to validated dropdown
-        self.inputs["FAQ Questions (one per line)"] = QTextEdit()
-        self.city_data = {}  # Stores cities and their embed codes
+        self.menu_bar = QMenuBar()
+        self.setMenuBar(self.menu_bar)
+        help_menu = QMenu("Help", self)
+        help_menu.addAction("About", self.show_about)
+        help_menu.addAction("How to Use", self.show_usage)
+        file_menu = QMenu("File", self)
+        file_menu.addAction("Open YAML", self.load_yaml)
+        self.menu_bar.addMenu(file_menu)
+        self.menu_bar.addMenu(help_menu)
 
         grid_layout = QGridLayout()
-        left_fields = [
-            "* Client Name",
-            "* Business Category",
-            "* Phone",
-            "Email",
-            "* Website",
-            "Street Address",
-            "City",
-            "State",
-            "ZIP",
-            "Country",
-        ]
-        right_fields = [
-            "Broker Name",
-            "Broker Website",
-            "Broker Phone",
-            "Google Maps Embed Code",
-            "* Target Cities (one per line)",
-            "* Services (one per line)",
-            "Social/Citation URLs (one per line)",
-        ]
+        left = list(self.inputs.keys())[:10]
+        right = list(self.inputs.keys())[10:]
 
-        for i, key in enumerate(left_fields):
+        for i, key in enumerate(left):
             lbl = QLabel(key)
             lbl.setFont(QFont("Arial", self.font_size))
             widget = self.inputs[key]
@@ -174,7 +75,7 @@ class YAMLForm(QMainWindow):
             grid_layout.addWidget(lbl, i, 0)
             grid_layout.addWidget(widget, i, 1)
 
-        for i, key in enumerate(right_fields):
+        for i, key in enumerate(right):
             lbl = QLabel(key)
             lbl.setFont(QFont("Arial", self.font_size))
             widget = self.inputs[key]
@@ -185,33 +86,86 @@ class YAMLForm(QMainWindow):
 
         self.main_layout.addLayout(grid_layout)
 
+        self.city_list = QListWidget()
+        self.city_list.setFont(QFont("Arial", self.font_size))
+        self.city_list.setFixedHeight(150)
+        self.manage_cities_button = QPushButton("Manage Cities")
+        self.manage_cities_button.setFont(QFont("Arial", self.font_size))
+        self.manage_cities_button.clicked.connect(self.open_city_dialog)
+        self.main_layout.addWidget(QLabel("Added Cities:"))
+        self.main_layout.addWidget(self.city_list)
+        self.main_layout.addWidget(self.manage_cities_button)
+
         self.save_button = QPushButton("Save YAML")
         self.save_button.clicked.connect(self.save_yaml)
-        self.save_button.setFont(QFont("Arial", self.font_size))
         self.main_layout.addWidget(self.save_button)
 
         central_widget.setLayout(self.main_layout)
 
-        def save_yaml(self):
-            # Collect data from inputs
-            data = {}
+    def open_city_dialog(self):
+        dialog = CityEmbedDialog(self)
+        if dialog.exec():
+            city_data = dialog.get_data()
+            key = f"{city_data['city']}, {city_data['state']}"
+            self.city_data[key] = {"embed_code": city_data['embed_code']}
+            self.refresh_city_list()
+
+    def refresh_city_list(self):
+        self.city_list.clear()
+        for city, data in self.city_data.items():
+            has_embed = bool(data.get("embed_code"))
+            status = "✅" if has_embed else "⚠️"
+            self.city_list.addItem(QListWidgetItem(f"{status} {city}"))
+
+    def show_about(self):
+        QMessageBox.information(self, "About", "Skippy Cloud Stack – YAML Builder v4")
+
+    def show_usage(self):
+        QMessageBox.information(self, "How to Use", "Complete the form, manage city embed codes, and save your YAML file.")
+
+    def load_yaml(self):
+        file_name, _ = QFileDialog.getOpenFileName(self, "Open YAML File", "", "YAML Files (*.yaml *.yml)")
+        if not file_name:
+            return
+        try:
+            with open(file_name, "r", encoding="utf-8") as file:
+                data = yaml.safe_load(file)
             for key, widget in self.inputs.items():
+                value = data.get(key, "")
                 if isinstance(widget, QTextEdit):
-                    data[key] = widget.toPlainText()
+                    widget.setPlainText(str(value))
                 else:
-                    data[key] = widget.text()
-            # Ask user for file location
-            file_name, _ = QFileDialog.getSaveFileName(
-                self, "Save YAML File", "", "YAML Files (*.yaml *.yml)"
-            )
-            if file_name:
-                try:
-                    with open(file_name, "w") as file:
-                        yaml.dump(data, file, allow_unicode=True, sort_keys=False)
-                    QMessageBox.information(
-                        self, "Success", "YAML file saved successfully!"
-                    )
-                except Exception as e:
-                    QMessageBox.critical(
-                        self, "Error", f"Failed to save YAML file:\n{e}"
-                    )
+                    widget.setText(str(value))
+            if "city_embeds" in data and isinstance(data["city_embeds"], dict):
+                self.city_data = data["city_embeds"]
+                self.refresh_city_list()
+            QMessageBox.information(self, "Loaded", "YAML loaded successfully.")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to load YAML file:\n{e}")
+
+    def save_yaml(self):
+        missing = [c for c, d in self.city_data.items() if not d.get("embed_code")]
+        if missing:
+            reply = QMessageBox.question(self, "Missing Embeds",
+                                         f"{len(missing)} cities are missing embeds. Add them now?",
+                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if reply == QMessageBox.StandardButton.Yes:
+                return
+        data = {k: w.toPlainText() if isinstance(w, QTextEdit) else w.text()
+                for k, w in self.inputs.items()}
+        data["city_embeds"] = self.city_data
+        file_name, _ = QFileDialog.getSaveFileName(self, "Save YAML File", "", "YAML Files (*.yaml *.yml)")
+        if file_name:
+            try:
+                with open(file_name, "w") as f:
+                    yaml.dump(data, f, allow_unicode=True, sort_keys=False)
+                QMessageBox.information(self, "Saved", "YAML saved successfully!")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to save YAML:\n{e}")
+
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    form = YAMLForm()
+    form.show()
+    sys.exit(app.exec())
