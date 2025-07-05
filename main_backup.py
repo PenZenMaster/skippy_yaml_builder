@@ -58,16 +58,6 @@ class YAMLForm(QMainWindow):
             "Social/Citation URLs (one per line)": QTextEdit()
         }
 
-        # New Fields (Extended Data)
-        self.inputs["Hero Image URL"] = QLineEdit()
-        self.inputs["City Page Hero Image Base URL"] = QLineEdit()
-        self.inputs["Logo URL"] = QLineEdit()
-        self.inputs["Contact Email Address"] = QLineEdit()
-        self.inputs["Primary Business Category"] = QLineEdit()  # Will be upgraded to validated dropdown
-        self.inputs["FAQ Questions (one per line)"] = QTextEdit()
-        self.city_data = {}  # Stores cities and their embed codes
-
-
         grid_layout = QGridLayout()
         left_fields = [
             "* Client Name", "* Business Category", "* Phone", "Email",
