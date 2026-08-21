@@ -1,7 +1,8 @@
 
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QTextEdit, QPushButton,
-    QFileDialog, QMessageBox, QMenuBar, QMainWindow, QMenu, QListWidget, QListWidgetItem, QGridLayout
+    QFileDialog, QMessageBox, QMenuBar, QMainWindow, QMenu, QListWidget, QListWidgetItem, QGridLayout,
+    QScrollArea
 )
 from PyQt6.QtGui import QFont
 from PyQt6.QtCore import Qt
@@ -21,7 +22,6 @@ class YAMLForm(QMainWindow):
         self.city_data = {}
 
         central_widget = QWidget()
-        self.setCentralWidget(central_widget)
         self.main_layout = QVBoxLayout()
 
         self.inputs = {
@@ -47,7 +47,42 @@ class YAMLForm(QMainWindow):
             "Logo URL": QLineEdit(),
             "Contact Email Address": QLineEdit(),
             "Primary Business Category": QLineEdit(),
-            "FAQ Questions (one per line)": QTextEdit()
+            "FAQ Questions (one per line)": QTextEdit(),
+            # YACSS build settings: these have no equivalent anywhere else in
+            # this form -- they are pure build mechanics for the YACSS API
+            # (rr_yacss_factory), not part of the client's own profile, so
+            # they stay grouped and prefixed "YACSS " rather than mixed in
+            # above. See rr_yacss_factory's docs/RR_YACSS_Factory_Specifications.md
+            # for what each corresponds to on the wire.
+            "YACSS Build Type": QLineEdit(),
+            "YACSS Template": QLineEdit(),
+            "YACSS Bucket Keyword": QLineEdit(),
+            "YACSS Cloud Account IDs (comma separated)": QLineEdit(),
+            "YACSS Tier0 Pages": QLineEdit(),
+            "YACSS Tiers (tier:pages, one per line)": QTextEdit(),
+            "YACSS AI Platform": QLineEdit(),
+            "YACSS AI Model": QLineEdit(),
+            "YACSS Tone": QLineEdit(),
+            "YACSS Language": QLineEdit(),
+            "YACSS Items Per Listicle": QLineEdit(),
+        }
+
+        # Placeholder hints for the YACSS fields only -- their valid values
+        # aren't self-evident the way "Phone" or "Email" are. Applied in the
+        # layout loops below rather than chained onto the dict literal above,
+        # to keep that dict a plain widget-per-key mapping.
+        self.placeholders = {
+            "YACSS Build Type": "diagram, listicle, or masspage_silo_local",
+            "YACSS Template": "e.g. porto-001",
+            "YACSS Bucket Keyword": "themed micro-site name -- becomes the real cloud bucket name",
+            "YACSS Cloud Account IDs (comma separated)": "e.g. 28205",
+            "YACSS Tier0 Pages": "1",
+            "YACSS Tiers (tier:pages, one per line)": "1:5",
+            "YACSS AI Platform": "openai",
+            "YACSS AI Model": "gpt-5-mini",
+            "YACSS Tone": "friendly",
+            "YACSS Language": "en",
+            "YACSS Items Per Listicle": "6",
         }
 
         self.menu_bar = QMenuBar()
@@ -72,6 +107,8 @@ class YAMLForm(QMainWindow):
             self.labels[key] = lbl
             if "Phone" in key:
                 widget.setInputMask("(000) 000-0000;_")
+            if key in self.placeholders:
+                widget.setPlaceholderText(self.placeholders[key])
             grid_layout.addWidget(lbl, i, 0)
             grid_layout.addWidget(widget, i, 1)
 
@@ -81,6 +118,8 @@ class YAMLForm(QMainWindow):
             widget = self.inputs[key]
             widget.setFont(QFont("Arial", self.font_size))
             self.labels[key] = lbl
+            if key in self.placeholders:
+                widget.setPlaceholderText(self.placeholders[key])
             grid_layout.addWidget(lbl, i, 2)
             grid_layout.addWidget(widget, i, 3)
 
@@ -101,6 +140,14 @@ class YAMLForm(QMainWindow):
         self.main_layout.addWidget(self.save_button)
 
         central_widget.setLayout(self.main_layout)
+
+        # Wrapped in a scroll area rather than a fixed 800px window: the
+        # YACSS build-settings fields added this section pushed the right
+        # column (23 fields) well past what fits on screen without one.
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setWidget(central_widget)
+        self.setCentralWidget(scroll_area)
 
     def open_city_dialog(self):
         dialog = CityEmbedDialog(self)
