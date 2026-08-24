@@ -12,6 +12,16 @@ from city_embed_dialog import CityEmbedDialog
 
 
 class YAMLForm(QMainWindow):
+    # Fields whose QTextEdit holds one entry per line; saved as a real YAML
+    # list rather than the raw multi-line string. Loading still accepts the
+    # older flat-string format for backward compatibility with existing files.
+    LIST_FIELDS = {
+        "* Target Cities (one per line)",
+        "* Services (one per line)",
+        "Social/Citation URLs (one per line)",
+        "FAQ Questions (one per line)",
+    }
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Skippy Cloud Stack – YAML Builder v4")
@@ -22,6 +32,13 @@ class YAMLForm(QMainWindow):
         self.city_data = {}
 
         central_widget = QWidget()
+        # Explicit colors on every input widget: without this, QTextEdit
+        # fields (unlike QLineEdit) can inherit mismatched text/background
+        # colors from a Windows dark-mode palette in PyQt6, rendering as
+        # invisible white-on-white text even though the stored value is fine.
+        central_widget.setStyleSheet(
+            "QLineEdit, QTextEdit { background-color: white; color: #000000; }"
+        )
         self.main_layout = QVBoxLayout()
 
         self.inputs = {
@@ -179,6 +196,8 @@ class YAMLForm(QMainWindow):
                 data = yaml.safe_load(file)
             for key, widget in self.inputs.items():
                 value = data.get(key, "")
+                if isinstance(value, list):
+                    value = "\n".join(str(item) for item in value)
                 if isinstance(widget, QTextEdit):
                     widget.setPlainText(str(value))
                 else:
@@ -198,8 +217,13 @@ class YAMLForm(QMainWindow):
                                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             if reply == QMessageBox.StandardButton.Yes:
                 return
-        data = {k: w.toPlainText() if isinstance(w, QTextEdit) else w.text()
-                for k, w in self.inputs.items()}
+        data = {}
+        for k, w in self.inputs.items():
+            text = w.toPlainText() if isinstance(w, QTextEdit) else w.text()
+            if k in self.LIST_FIELDS:
+                data[k] = [line.strip() for line in text.splitlines() if line.strip()]
+            else:
+                data[k] = text
         data["city_embeds"] = self.city_data
         file_name, _ = QFileDialog.getSaveFileName(self, "Save YAML File", "", "YAML Files (*.yaml *.yml)")
         if file_name:

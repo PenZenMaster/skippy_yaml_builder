@@ -10,6 +10,9 @@ class CityEmbedDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Add City with Embed Code")
         self.setMinimumWidth(500)
+        self.setStyleSheet(
+            "QLineEdit, QTextEdit { background-color: white; color: #000000; }"
+        )
 
         self.city_input = QLineEdit()
         self.city_input.setPlaceholderText("City Name")
