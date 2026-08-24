@@ -533,7 +533,18 @@ class YAMLForm(QMainWindow):
         file_name, _ = QFileDialog.getSaveFileName(self, "Save YAML File", "", "YAML Files (*.yaml *.yml)")
         if file_name:
             try:
-                with open(file_name, "w") as f:
+                # Explicit encoding is required here -- without it, open()
+                # uses the platform's locale-default encoding (cp1252 on a
+                # typical Windows install, not UTF-8). A real client file
+                # containing an em dash, curly quote, or (R)/(TM) symbol
+                # (common when FAQ content is pasted from Word or a web
+                # page) got written as cp1252 bytes this way, then failed
+                # to load at all with a UnicodeDecodeError, since
+                # load_yaml's open() (below) has always hardcoded
+                # encoding="utf-8". Confirmed live 2026-08-25 with a real
+                # client YAML file that wouldn't load until manually
+                # re-encoded.
+                with open(file_name, "w", encoding="utf-8", newline="") as f:
                     yaml.dump(data, f, allow_unicode=True, sort_keys=False)
                 QMessageBox.information(self, "Saved", "YAML saved successfully!")
             except Exception as e:

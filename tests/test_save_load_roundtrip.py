@@ -215,3 +215,38 @@ def test_full_round_trip_save_then_load(qapp, tmp_path, monkeypatch):
     assert reloaded.inputs["* Client Name"].text() == "Round Trip Co"
     assert reloaded.cloud_account_manual_input.text() == "28205, 25399"
     assert reloaded.city_data == {"Chicago, IL": {"embed_code": "<iframe></iframe>"}}
+
+
+def test_save_then_load_round_trips_non_ascii_content(qapp, tmp_path, monkeypatch):
+    """Regression test for a real bug found 2026-08-25: save_yaml's open()
+    had no explicit encoding, so on Windows it defaulted to the locale
+    encoding (cp1252) rather than UTF-8 -- a real client FAQ file
+    containing an em dash (pasted from elsewhere) got written as cp1252
+    bytes, then failed to load at all with a UnicodeDecodeError, since
+    load_yaml has always hardcoded encoding="utf-8". This must round-trip
+    cleanly for any character cp1252 and UTF-8 disagree on -- an em dash
+    (U+2014) and a registered trademark sign (U+00AE) are used here since
+    those were the real characters that triggered the bug."""
+    form = YAMLForm()
+    form.inputs["* Client Name"].setText("Acme Doors — Overhead®")
+    form._add_faq_row("What is a fire—rated door?", "It resists fire for 1.5–4 hours.")
+
+    out_file = tmp_path / "unicode.yaml"
+    monkeypatch.setattr(
+        QFileDialog, "getSaveFileName", lambda *a, **k: (str(out_file), "")
+    )
+    form.save_yaml()
+
+    reloaded = YAMLForm()
+    monkeypatch.setattr(
+        QFileDialog, "getOpenFileName", lambda *a, **k: (str(out_file), "")
+    )
+    reloaded.load_yaml()
+
+    assert reloaded.inputs["* Client Name"].text() == "Acme Doors — Overhead®"
+    assert reloaded._serialize_faq_rows() == [
+        {
+            "question": "What is a fire—rated door?",
+            "answer": "It resists fire for 1.5–4 hours.",
+        }
+    ]
