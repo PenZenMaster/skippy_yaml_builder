@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QTextEdit, QPushButton,
     QFileDialog, QMessageBox, QMenuBar, QMainWindow, QMenu, QListWidget, QListWidgetItem, QGridLayout,
     QScrollArea, QComboBox, QTableWidget, QTableWidgetItem, QAbstractItemView, QAbstractItemDelegate,
-    QDialog, QTextBrowser
+    QDialog, QTextBrowser, QTabWidget
 )
 from PyQt6.QtGui import QFont
 from PyQt6.QtCore import Qt
@@ -14,6 +14,7 @@ import re
 import sys
 import yaml
 from city_embed_dialog import CityEmbedDialog
+from theme import ThemeManager
 from yacss_api import fetch_templates, fetch_cloud_accounts, YacssApiError
 
 # Bumped by hand alongside CHANGELOG.md -- see that file for what changed
@@ -21,7 +22,7 @@ from yacss_api import fetch_templates, fetch_cloud_accounts, YacssApiError
 # running instance is identifiable, unlike the old hardcoded "v4" (a
 # leftover UI-redesign label, not a real version, that stopped being
 # updated years before this was added).
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 README_PATH = Path(__file__).resolve().parent / "README.md"
 
@@ -131,10 +132,34 @@ class YAMLForm(QMainWindow):
         "YACSS Diagram Page Titles (one per line)",
     }
 
+    # Which tab each self.inputs field appears on -- every key in self.inputs
+    # must appear in exactly one of these three lists (checked implicitly:
+    # a field left out of all three would still work for save/load, since
+    # that loop iterates self.inputs directly, but would be invisible/
+    # unreachable in the UI). Tabs replace the old single long scroll with
+    # one QGridLayout each, both to keep any one screen shorter and to
+    # group genuinely related fields together -- see _build_field_grid.
+    CLIENT_INFO_FIELDS = [
+        "* Client Name", "* Business Category", "* Phone", "Email", "* Website",
+        "Street Address", "City", "State", "ZIP", "Country",
+        "Broker Name", "Broker Website", "Broker Phone",
+    ]
+    CONTENT_FIELDS = [
+        "Google Maps Embed Code", "* Target Cities (one per line)", "* Services (one per line)",
+        "Social/Citation URLs (one per line)", "Hero Image URL", "City Page Hero Image Base URL",
+        "Logo URL", "Contact Email Address", "Primary Business Category",
+    ]
+    YACSS_BUILD_FIELDS = [
+        "YACSS Build Type", "YACSS Template", "YACSS Bucket Keyword", "YACSS Tier0 Pages",
+        "YACSS Tiers (tier:pages, one per line)", "YACSS AI Platform", "YACSS AI Model",
+        "YACSS Tone", "YACSS Language", "YACSS Items Per Listicle",
+        "YACSS Diagram Page Titles (one per line)", "YACSS Diagram Content",
+    ]
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"Skippy Cloud Stack – YAML Builder v{__version__}")
-        self.setGeometry(200, 200, 1100, 800)
+        self.setGeometry(200, 200, 950, 700)
         self.font_size = 10
         self.dark_mode = False
         self.labels = {}
@@ -245,35 +270,7 @@ class YAMLForm(QMainWindow):
         self.menu_bar.addMenu(file_menu)
         self.menu_bar.addMenu(help_menu)
 
-        grid_layout = QGridLayout()
-        left = list(self.inputs.keys())[:10]
-        right = list(self.inputs.keys())[10:]
-
-        for i, key in enumerate(left):
-            lbl = QLabel(key)
-            lbl.setFont(QFont("Arial", self.font_size))
-            widget = self.inputs[key]
-            widget.setFont(QFont("Arial", self.font_size))
-            self.labels[key] = lbl
-            if "Phone" in key:
-                widget.setInputMask("(000) 000-0000;_")
-            if key in self.placeholders:
-                widget.setPlaceholderText(self.placeholders[key])
-            grid_layout.addWidget(lbl, i, 0)
-            grid_layout.addWidget(widget, i, 1)
-
-        for i, key in enumerate(right):
-            lbl = QLabel(key)
-            lbl.setFont(QFont("Arial", self.font_size))
-            widget = self.inputs[key]
-            widget.setFont(QFont("Arial", self.font_size))
-            self.labels[key] = lbl
-            if key in self.placeholders:
-                widget.setPlaceholderText(self.placeholders[key])
-            grid_layout.addWidget(lbl, i, 2)
-            grid_layout.addWidget(widget, i, 3)
-
-        self.main_layout.addLayout(grid_layout)
+        self.main_tabs = QTabWidget()
 
         # YACSS Cloud Account IDs: a checkable multi-select list populated
         # live from GET /cloud-accounts (see _populate_live_dropdowns),
@@ -297,9 +294,6 @@ class YAMLForm(QMainWindow):
             "isn't listed above or the live lookup failed"
         )
         self.cloud_account_list_label = QLabel("YACSS Cloud Account IDs (check one or more):")
-        self.main_layout.addWidget(self.cloud_account_list_label)
-        self.main_layout.addWidget(self.cloud_account_list)
-        self.main_layout.addWidget(self.cloud_account_manual_input)
 
         # Diagram-only: a real Diagram (cloud_stack) build assigns cloud
         # accounts PER TIER, not one global list -- rr_yacss_factory's
@@ -324,8 +318,6 @@ class YAMLForm(QMainWindow):
         self.diagram_tier_accounts_table.horizontalHeader().setStretchLastSection(True)
         self.diagram_tier_accounts_table.setFont(QFont("Arial", self.font_size))
         self.diagram_tier_accounts_table.setFixedHeight(120)
-        self.main_layout.addWidget(self.diagram_tier_table_label)
-        self.main_layout.addWidget(self.diagram_tier_accounts_table)
 
         # FAQ Questions & Answers: YACSS's diagram builder needs both, not
         # just a question -- GET /build-fields?type=diagram's FAQ group has
@@ -341,17 +333,13 @@ class YAMLForm(QMainWindow):
         self.faq_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.add_faq_row_button = QPushButton("Add FAQ Row")
         self.add_faq_row_button.clicked.connect(lambda: self._add_faq_row())
+        ThemeManager.apply_button_style(self.add_faq_row_button, "success")
         self.remove_faq_row_button = QPushButton("Remove Selected FAQ Row")
         self.remove_faq_row_button.clicked.connect(self._remove_selected_faq_row)
+        ThemeManager.apply_button_style(self.remove_faq_row_button, "danger")
         self.import_faq_csv_button = QPushButton("Import FAQs from CSV")
         self.import_faq_csv_button.clicked.connect(self.import_faq_csv)
-        faq_buttons_row = QHBoxLayout()
-        faq_buttons_row.addWidget(self.add_faq_row_button)
-        faq_buttons_row.addWidget(self.remove_faq_row_button)
-        faq_buttons_row.addWidget(self.import_faq_csv_button)
-        self.main_layout.addWidget(QLabel("FAQ Questions & Answers:"))
-        self.main_layout.addWidget(self.faq_table)
-        self.main_layout.addLayout(faq_buttons_row)
+        ThemeManager.apply_button_style(self.import_faq_csv_button, "import")
 
         self.city_list = QListWidget()
         self.city_list.setFont(QFont("Arial", self.font_size))
@@ -359,13 +347,11 @@ class YAMLForm(QMainWindow):
         self.manage_cities_button = QPushButton("Manage Cities")
         self.manage_cities_button.setFont(QFont("Arial", self.font_size))
         self.manage_cities_button.clicked.connect(self.open_city_dialog)
-        self.main_layout.addWidget(QLabel("Added Cities:"))
-        self.main_layout.addWidget(self.city_list)
-        self.main_layout.addWidget(self.manage_cities_button)
+        ThemeManager.apply_button_style(self.manage_cities_button, "secondary")
 
         self.save_button = QPushButton("Save YAML")
         self.save_button.clicked.connect(self.save_yaml)
-        self.main_layout.addWidget(self.save_button)
+        ThemeManager.apply_button_style(self.save_button, "success")
 
         # Diagram-only for now (see export_job_json's own doc comment) --
         # Listicle/Masspage_Silo_Local export isn't built yet (missing
@@ -375,13 +361,30 @@ class YAMLForm(QMainWindow):
         # export path is added).
         self.export_job_button = QPushButton("Export Job JSON (Diagram only)")
         self.export_job_button.clicked.connect(self.export_job_json)
-        self.main_layout.addWidget(self.export_job_button)
+        ThemeManager.apply_button_style(self.export_job_button, "export")
+
+        self._build_tabs()
+
+        # Buttons live in QHBoxLayout rows with addStretch() (see
+        # _build_tabs and the action bar below), not bare
+        # addWidget()-onto-a-QVBoxLayout -- a plain QVBoxLayout stretches
+        # every child to the container's full width, which is why every
+        # button in this form used to span the entire window.
+        self.main_layout = QVBoxLayout()
+        self.main_layout.addWidget(self.main_tabs)
+
+        actions_row = QHBoxLayout()
+        actions_row.addWidget(self.save_button)
+        actions_row.addWidget(self.export_job_button)
+        actions_row.addStretch()
+        self.main_layout.addLayout(actions_row)
 
         central_widget.setLayout(self.main_layout)
 
-        # Wrapped in a scroll area rather than a fixed 800px window: the
-        # YACSS build-settings fields added this section pushed the right
-        # column (23 fields) well past what fits on screen without one.
+        # Wrapped in a scroll area rather than a fixed-height window: even
+        # with fields split across tabs, the YACSS Build tab (12 fields
+        # plus the cloud-account checklist/per-tier table) can still run
+        # long on a small display.
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setWidget(central_widget)
@@ -402,6 +405,80 @@ class YAMLForm(QMainWindow):
         self._update_page_titles_count_label()
 
         self._populate_live_dropdowns()
+
+    def _build_field_grid(self, field_keys: list) -> QGridLayout:
+        """One QGridLayout (label column 0, widget column 1) for the given
+        self.inputs keys, in order -- the per-tab replacement for the old
+        single 4-column grid that held every field on one screen at once."""
+        grid_layout = QGridLayout()
+        for row, key in enumerate(field_keys):
+            lbl = QLabel(key)
+            lbl.setFont(QFont("Arial", self.font_size))
+            widget = self.inputs[key]
+            widget.setFont(QFont("Arial", self.font_size))
+            self.labels[key] = lbl
+            if "Phone" in key:
+                widget.setInputMask("(000) 000-0000;_")
+            if key in self.placeholders:
+                widget.setPlaceholderText(self.placeholders[key])
+            grid_layout.addWidget(lbl, row, 0)
+            grid_layout.addWidget(widget, row, 1)
+        return grid_layout
+
+    def _build_tabs(self):
+        """Builds self.main_tabs' four tabs. Every self.inputs field must
+        appear in exactly one of CLIENT_INFO_FIELDS/CONTENT_FIELDS/
+        YACSS_BUILD_FIELDS (checked by test_ui_tabs.py) -- a field left out
+        of all three would still work for save/load (that loop iterates
+        self.inputs directly, not the tab layouts), but would be invisible
+        in the UI. FAQ has no self.inputs fields of its own (self.faq_table
+        is a dedicated widget, not in that dict), so it isn't in that
+        contract -- see _serialize_faq_rows/_load_faq_rows."""
+        client_info_tab = QWidget()
+        client_info_layout = QVBoxLayout()
+        client_info_layout.addLayout(self._build_field_grid(self.CLIENT_INFO_FIELDS))
+        client_info_layout.addStretch()
+        client_info_tab.setLayout(client_info_layout)
+        self.main_tabs.addTab(client_info_tab, "Client Info")
+
+        content_tab = QWidget()
+        content_layout = QVBoxLayout()
+        content_layout.addLayout(self._build_field_grid(self.CONTENT_FIELDS))
+        content_layout.addWidget(QLabel("Added Cities:"))
+        content_layout.addWidget(self.city_list)
+        manage_cities_row = QHBoxLayout()
+        manage_cities_row.addWidget(self.manage_cities_button)
+        manage_cities_row.addStretch()
+        content_layout.addLayout(manage_cities_row)
+        content_layout.addStretch()
+        content_tab.setLayout(content_layout)
+        self.main_tabs.addTab(content_tab, "Content")
+
+        faq_tab = QWidget()
+        faq_layout = QVBoxLayout()
+        faq_layout.addWidget(QLabel("FAQ Questions & Answers:"))
+        faq_layout.addWidget(self.faq_table)
+        faq_buttons_row = QHBoxLayout()
+        faq_buttons_row.addWidget(self.add_faq_row_button)
+        faq_buttons_row.addWidget(self.remove_faq_row_button)
+        faq_buttons_row.addWidget(self.import_faq_csv_button)
+        faq_buttons_row.addStretch()
+        faq_layout.addLayout(faq_buttons_row)
+        faq_layout.addStretch()
+        faq_tab.setLayout(faq_layout)
+        self.main_tabs.addTab(faq_tab, "FAQ")
+
+        yacss_tab = QWidget()
+        yacss_layout = QVBoxLayout()
+        yacss_layout.addLayout(self._build_field_grid(self.YACSS_BUILD_FIELDS))
+        yacss_layout.addWidget(self.cloud_account_list_label)
+        yacss_layout.addWidget(self.cloud_account_list)
+        yacss_layout.addWidget(self.cloud_account_manual_input)
+        yacss_layout.addWidget(self.diagram_tier_table_label)
+        yacss_layout.addWidget(self.diagram_tier_accounts_table)
+        yacss_layout.addStretch()
+        yacss_tab.setLayout(yacss_layout)
+        self.main_tabs.addTab(yacss_tab, "YACSS Build")
 
     def _populate_live_dropdowns(self):
         """Fetches templates/cloud accounts from the live YACSS API to

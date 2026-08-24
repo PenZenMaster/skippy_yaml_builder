@@ -33,9 +33,12 @@ def test_build_type_diagram_shows_per_tier_table_hides_flat_checklist(qapp):
     form = YAMLForm()
     form.inputs["YACSS Build Type"].setCurrentText("Diagram")
 
-    # isVisibleTo() reflects the widget's own setVisible() flag regardless
-    # of whether the top-level window itself has ever been shown (it
-    # hasn't, in this headless offscreen test suite).
+    # isVisibleTo() reflects the widget's own setVisible() flag AND every
+    # ancestor's, and both toggled widgets live in the "YACSS Build" tab
+    # page -- a QTabWidget hides every page except the active one, so the
+    # tab must be selected first or isVisibleTo() reads False regardless
+    # of _update_build_type_ui's own setVisible() call.
+    form.main_tabs.setCurrentWidget(form.diagram_tier_accounts_table.parentWidget())
     assert form.diagram_tier_accounts_table.isVisibleTo(form) is True
     assert form.cloud_account_list.isVisibleTo(form) is False
 
@@ -45,6 +48,7 @@ def test_build_type_listicle_shows_flat_checklist_hides_per_tier_table(qapp):
     form.inputs["YACSS Build Type"].setCurrentText("Diagram")
     form.inputs["YACSS Build Type"].setCurrentText("Listicle")
 
+    form.main_tabs.setCurrentWidget(form.cloud_account_list.parentWidget())
     assert form.diagram_tier_accounts_table.isVisibleTo(form) is False
     assert form.cloud_account_list.isVisibleTo(form) is True
 

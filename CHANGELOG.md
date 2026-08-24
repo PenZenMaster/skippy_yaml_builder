@@ -3,10 +3,20 @@
 All notable changes to this project are documented in this file. Format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.2.0] - 2026-08-24
 
 ### Added
 
+- **Tabbed layout + centralized button theme.** The old single-screen
+  form (every field in one 4-column grid, full-width buttons) is now
+  four tabs -- Client Info, Content, FAQ, YACSS Build -- keeping any
+  one screen a reasonable size. Button colors are now centralized in
+  `theme.py`'s `ThemeManager` (one semantic style per action: success,
+  export, import, danger, secondary) instead of ad hoc per-button
+  styling, adapted from the same pattern in the sibling
+  `cloud-stack-generator` project. Widget identity is unchanged --
+  `self.inputs`/`self.labels` and all existing save/load/export logic
+  are untouched, only where each widget is placed changed.
 - **Export Job JSON** (Diagram build type only) -- writes a real
   `rr_yacss_factory` job file directly, in the same shape its own
   `factory run` reads. Added the two fields a Diagram job actually
