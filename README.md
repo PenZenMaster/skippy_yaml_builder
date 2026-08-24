@@ -60,6 +60,25 @@ next to it is exactly for that case.
   automatically). Imported rows are **appended** to whatever's already
   in the table, not a destructive replace.
 
+### Exporting a real rr_yacss_factory job file
+**Export Job JSON** (Diagram build type only, for now) writes a real
+`rr_yacss_factory` job file -- the same JSON shape its own `factory run`
+reads, ready to draft/generate/publish from there. Two fields exist only
+to feed this export and aren't part of the saved client YAML's older
+sections: `YACSS Diagram Page Titles (one per line)` (must contain
+exactly one title per real page -- see the multiplicative math above,
+not a plain sum of tier sizes) and `YACSS Diagram Content` (the page
+body text). If anything looks incomplete when you export (a blank
+required field, a page-title count that doesn't match the real total, a
+tier with no cloud accounts assigned), you'll get a warning listing the
+specific issues and a chance to cancel -- exporting anyway is still
+allowed, since the authoritative check is `rr_yacss_factory`'s own job
+schema when the file is actually used, not anything duplicated here.
+FAQ Questions & Answers are carried into the export too (YACSS has no
+dedicated FAQ field, so they ride along as the real `faq_question[]`/
+`faq_answer[]` build-field keys). Listicle and Masspage_Silo_Local
+export isn't built yet.
+
 ### Fields with no effect yet
 `Hero Image URL`, `City Page Hero Image Base URL`, and `Logo URL` are
 captured but not yet consumed by any downstream build step -- there's no

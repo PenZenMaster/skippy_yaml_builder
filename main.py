@@ -8,7 +8,9 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QFont
 from PyQt6.QtCore import Qt
 import csv
+import json
 from pathlib import Path
+import re
 import sys
 import yaml
 from city_embed_dialog import CityEmbedDialog
@@ -126,6 +128,7 @@ class YAMLForm(QMainWindow):
         "* Target Cities (one per line)",
         "* Services (one per line)",
         "Social/Citation URLs (one per line)",
+        "YACSS Diagram Page Titles (one per line)",
     }
 
     def __init__(self):
@@ -204,6 +207,15 @@ class YAMLForm(QMainWindow):
             "YACSS Tone": QLineEdit(),
             "YACSS Language": QLineEdit(),
             "YACSS Items Per Listicle": QLineEdit(),
+            # Required by rr_yacss_factory's real CloudStackJob (and, later,
+            # MasspageJob) but never previously captured anywhere in this
+            # form: page_titles must contain exactly one title per line
+            # matching the build's real MULTIPLICATIVE total page count
+            # (see _compute_cloud_stack_total_pages) -- export_job_json
+            # warns, but does not block, on a mismatch. content is the
+            # free-form paragraph YACSS's cheap "spin content1" mode uses.
+            "YACSS Diagram Page Titles (one per line)": QTextEdit(),
+            "YACSS Diagram Content": QTextEdit(),
         }
 
         # Placeholder hints for the YACSS fields only -- their valid values
@@ -220,6 +232,7 @@ class YAMLForm(QMainWindow):
             "YACSS Tone": "friendly",
             "YACSS Language": "en",
             "YACSS Items Per Listicle": "6",
+            "YACSS Diagram Content": "free-form paragraph text for the stack's pages",
         }
 
         self.menu_bar = QMenuBar()
@@ -353,6 +366,16 @@ class YAMLForm(QMainWindow):
         self.save_button = QPushButton("Save YAML")
         self.save_button.clicked.connect(self.save_yaml)
         self.main_layout.addWidget(self.save_button)
+
+        # Diagram-only for now (see export_job_json's own doc comment) --
+        # Listicle/Masspage_Silo_Local export isn't built yet (missing
+        # fields: a Listicle-specific target keyword, brand/competitor
+        # info; page_titles/content are shared with Diagram and already
+        # exist above, so those two types are closer once their own
+        # export path is added).
+        self.export_job_button = QPushButton("Export Job JSON (Diagram only)")
+        self.export_job_button.clicked.connect(self.export_job_json)
+        self.main_layout.addWidget(self.export_job_button)
 
         central_widget.setLayout(self.main_layout)
 
@@ -588,6 +611,176 @@ class YAMLForm(QMainWindow):
             else:
                 continue
             self.diagram_tier_accounts_table.setItem(row, 1, QTableWidgetItem(value))
+
+    @staticmethod
+    def _slugify(text: str) -> str:
+        """Mirrors rr_yacss_factory's src/jobs/loader.ts slugify() closely
+        enough for a readable job_id: lowercase, non-alphanumerics become
+        a single hyphen, no leading/trailing hyphens."""
+        slug = re.sub(r"[^a-z0-9]+", "-", text.strip().lower())
+        return slug.strip("-")
+
+    @staticmethod
+    def _compute_cloud_stack_total_pages(tier0_pages: int, tier_pages) -> int:
+        """Exact port of rr_yacss_factory's computeCloudStackTotalPages()
+        (src/jobs/schema.ts) -- tiers multiply, not add. tier_pages is an
+        iterable of each tier's own page count, in tier order."""
+        running_product = 1
+        total = tier0_pages
+        for pages in tier_pages:
+            running_product *= pages
+            total += running_product
+        return total
+
+    def _build_cloud_stack_job(self):
+        """Builds a rr_yacss_factory CloudStackJob dict from the current
+        form state, plus a list of human-readable warnings for anything
+        that looks incomplete or inconsistent (blank required fields, a
+        page_titles count that doesn't match the real multiplicative
+        total, a tier with no cloud accounts assigned). Warnings are
+        advisory -- export_job_json still writes the file, since the
+        real, authoritative validation is rr_yacss_factory's own job
+        schema (src/jobs/schema.ts) when the file is actually used, not
+        anything duplicated here. FAQs have no dedicated field in the
+        real CloudStackJob -- see the class's own doc comment -- so
+        they're passed through extra_fields as the raw YACSS build-field
+        keys confirmed live (GET /build-fields?type=diagram's FAQ group):
+        faq_auto="2" (manual mode, no AI credits spent) plus parallel
+        faq_question[]/faq_answer[] arrays.
+        """
+        warnings = []
+
+        def require(value: str, label: str):
+            if not value.strip():
+                warnings.append(f"{label} is blank")
+
+        client_name = self.inputs["* Client Name"].text()
+        keyword = self.inputs["YACSS Bucket Keyword"].text()
+        template = self.inputs["YACSS Template"].currentText()
+        landing_url = self.inputs["* Website"].text()
+        tier0_pages_raw = self.inputs["YACSS Tier0 Pages"].text()
+
+        require(client_name, "* Client Name")
+        require(keyword, "YACSS Bucket Keyword")
+        require(template, "YACSS Template")
+        require(landing_url, "* Website")
+
+        try:
+            tier0_pages = int(tier0_pages_raw.strip() or "0")
+        except ValueError:
+            warnings.append(f"YACSS Tier0 Pages {tier0_pages_raw!r} is not a whole number -- treated as 0")
+            tier0_pages = 0
+
+        tiers = []
+        for row in range(self.diagram_tier_accounts_table.rowCount()):
+            tier_item = self.diagram_tier_accounts_table.item(row, 0)
+            ids_item = self.diagram_tier_accounts_table.item(row, 1)
+            tier_num = tier_item.data(Qt.ItemDataRole.UserRole)
+            ids_text = ids_item.text().strip() if ids_item else ""
+            pages_match = re.search(r"\((\d+) pages\)", tier_item.text())
+            pages = int(pages_match.group(1)) if pages_match else 0
+            account_ids = [v.strip() for v in ids_text.split(",") if v.strip()]
+            if not account_ids:
+                warnings.append(f"Tier {tier_num} has no Cloud Account IDs assigned")
+            tiers.append({"tier": tier_num, "pages": pages, "cloud_account_ids": account_ids})
+
+        page_titles = [
+            line.strip()
+            for line in self.inputs["YACSS Diagram Page Titles (one per line)"].toPlainText().splitlines()
+            if line.strip()
+        ]
+        expected_total = self._compute_cloud_stack_total_pages(
+            tier0_pages, [t["pages"] for t in tiers]
+        )
+        if len(page_titles) != expected_total:
+            warnings.append(
+                f"YACSS Diagram Page Titles has {len(page_titles)} line(s), but the "
+                f"real total page count (multiplicative, not additive) is {expected_total}"
+            )
+
+        content = self.inputs["YACSS Diagram Content"].toPlainText().strip()
+        if not content:
+            warnings.append("YACSS Diagram Content is blank")
+
+        company = {
+            "name": self.inputs["* Client Name"].text(),
+            "address": self.inputs["Street Address"].text(),
+            "city": self.inputs["City"].text(),
+            "state": self.inputs["State"].text(),
+            "zip": self.inputs["ZIP"].text(),
+            "phone": self.inputs["* Phone"].text(),
+            "email": self.inputs["Email"].text() or self.inputs["Contact Email Address"].text(),
+        }
+        for field_name in ("address", "city", "state", "zip", "phone", "email"):
+            require(company[field_name], f"Company {field_name}")
+
+        job = {
+            "job_id": self._slugify(client_name) or "cloud-stack-job",
+            "type": "cloud_stack",
+            "keyword": keyword,
+            "name": client_name,
+            "template": template,
+            "landing_url": landing_url,
+            "company": company,
+            "tier0_pages": tier0_pages,
+            "tiers": tiers,
+            "page_titles": page_titles,
+            "content": content,
+        }
+
+        faqs = self._serialize_faq_rows()
+        if faqs:
+            job["extra_fields"] = {
+                "faq_auto": "2",
+                "faq_question[]": [f["question"] for f in faqs],
+                "faq_answer[]": [f["answer"] for f in faqs],
+            }
+
+        return job, warnings
+
+    def export_job_json(self):
+        """Writes a rr_yacss_factory job file (a JSON array containing one
+        CloudStackJob) for the Diagram build type -- Listicle/
+        Masspage_Silo_Local aren't supported yet (see this button's own
+        setup comment for what's missing). The two projects stay loosely
+        coupled: this never calls the live YACSS API or duplicates
+        rr_yacss_factory's own template/cloud-account name resolution --
+        it writes the same human-friendly job-file shape `factory run`
+        already resolves itself."""
+        if self.inputs["YACSS Build Type"].currentText() != "Diagram":
+            QMessageBox.warning(
+                self,
+                "Not Supported Yet",
+                "Job JSON export is only implemented for YACSS Build Type "
+                "'Diagram' so far.",
+            )
+            return
+
+        job, warnings = self._build_cloud_stack_job()
+        if warnings:
+            reply = QMessageBox.question(
+                self,
+                "Export Warnings",
+                "This job has potential issues:\n\n"
+                + "\n".join(f"- {w}" for w in warnings)
+                + "\n\nExport anyway?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+        default_name = f"{job['job_id']}.json"
+        file_name, _ = QFileDialog.getSaveFileName(
+            self, "Export Job JSON", default_name, "JSON Files (*.json)"
+        )
+        if not file_name:
+            return
+        try:
+            with open(file_name, "w", encoding="utf-8") as f:
+                json.dump([job], f, indent=2, ensure_ascii=False)
+            QMessageBox.information(self, "Exported", f"Job JSON written to:\n{file_name}")
+        except OSError as e:
+            QMessageBox.critical(self, "Error", f"Failed to write job JSON:\n{e}")
 
     def _add_faq_row(self, question: str = "", answer: str = ""):
         row = self.faq_table.rowCount()

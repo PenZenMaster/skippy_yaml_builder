@@ -5,6 +5,22 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Export Job JSON** (Diagram build type only) -- writes a real
+  `rr_yacss_factory` job file directly, in the same shape its own
+  `factory run` reads. Added the two fields a Diagram job actually
+  needs that had no home in the form before now: `YACSS Diagram Page
+  Titles (one per line)` and `YACSS Diagram Content`. Warns (without
+  blocking) on blank required fields, a page-title count that doesn't
+  match the real multiplicative total, or a tier with no cloud accounts
+  assigned. FAQs ride along as YACSS's real `faq_question[]`/
+  `faq_answer[]` build-field keys. Verified against a real client file
+  (Overhead Door Joliet): the exported JSON was validated directly
+  against `rr_yacss_factory`'s own live schema, both the expected
+  rejection (missing page_titles/content) and the clean pass once
+  filled in, with real cloud account IDs and a real template id.
+
 ## [0.1.0] - 2026-08-25
 
 First versioned release -- this project had no version tracking before
