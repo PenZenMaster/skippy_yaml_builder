@@ -6,10 +6,37 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QFont
 from PyQt6.QtCore import Qt
+import csv
 import sys
 import yaml
 from city_embed_dialog import CityEmbedDialog
 from yacss_api import fetch_templates, fetch_cloud_accounts, YacssApiError
+
+
+def parse_faq_csv(rows: list) -> list:
+    """Parses already-read CSV rows (as from csv.reader) into
+    [{"question": ..., "answer": ...}, ...], skipping a header row if the
+    first cell of the first row is literally "question" (case-insensitive,
+    stripped) and skipping any row with a blank question. A row with more
+    than 2 columns (e.g. an unquoted comma inside the answer) has its
+    columns after the first rejoined with "," rather than silently
+    dropping data. Pure/file-IO-free so it's directly unit-testable
+    without a QApplication or a real file."""
+    if not rows:
+        return []
+    start = 0
+    if rows[0] and rows[0][0].strip().lower() == "question":
+        start = 1
+    faqs = []
+    for row in rows[start:]:
+        if not row:
+            continue
+        question = row[0].strip()
+        if not question:
+            continue
+        answer = ",".join(row[1:]).strip() if len(row) > 1 else ""
+        faqs.append({"question": question, "answer": answer})
+    return faqs
 
 
 class _FaqTableWidget(QTableWidget):
@@ -238,9 +265,12 @@ class YAMLForm(QMainWindow):
         self.add_faq_row_button.clicked.connect(lambda: self._add_faq_row())
         self.remove_faq_row_button = QPushButton("Remove Selected FAQ Row")
         self.remove_faq_row_button.clicked.connect(self._remove_selected_faq_row)
+        self.import_faq_csv_button = QPushButton("Import FAQs from CSV")
+        self.import_faq_csv_button.clicked.connect(self.import_faq_csv)
         faq_buttons_row = QHBoxLayout()
         faq_buttons_row.addWidget(self.add_faq_row_button)
         faq_buttons_row.addWidget(self.remove_faq_row_button)
+        faq_buttons_row.addWidget(self.import_faq_csv_button)
         self.main_layout.addWidget(QLabel("FAQ Questions & Answers:"))
         self.main_layout.addWidget(self.faq_table)
         self.main_layout.addLayout(faq_buttons_row)
@@ -391,6 +421,32 @@ class YAMLForm(QMainWindow):
                 self._add_faq_row(str(row.get("question", "")), str(row.get("answer", "")))
             else:
                 self._add_faq_row(str(row), "")
+
+    def import_faq_csv(self):
+        file_name, _ = QFileDialog.getOpenFileName(
+            self, "Import FAQs from CSV", "", "CSV Files (*.csv)"
+        )
+        if not file_name:
+            return
+        try:
+            # utf-8-sig transparently strips a leading BOM (common in
+            # Excel-exported CSVs) while still reading a plain-utf-8 file
+            # with no BOM identically to "utf-8".
+            with open(file_name, "r", encoding="utf-8-sig", newline="") as f:
+                faqs = parse_faq_csv(list(csv.reader(f)))
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to import FAQs from CSV:\n{e}")
+            return
+        if not faqs:
+            QMessageBox.warning(
+                self,
+                "No FAQs Found",
+                "No question/answer rows were found in that CSV file.",
+            )
+            return
+        for faq in faqs:
+            self._add_faq_row(faq["question"], faq["answer"])
+        QMessageBox.information(self, "Imported", f"Imported {len(faqs)} FAQ(s).")
 
     def open_city_dialog(self):
         dialog = CityEmbedDialog(self)
