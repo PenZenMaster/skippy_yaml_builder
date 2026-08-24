@@ -2,15 +2,53 @@
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QTextEdit, QPushButton,
     QFileDialog, QMessageBox, QMenuBar, QMainWindow, QMenu, QListWidget, QListWidgetItem, QGridLayout,
-    QScrollArea, QComboBox, QTableWidget, QTableWidgetItem, QAbstractItemView, QAbstractItemDelegate
+    QScrollArea, QComboBox, QTableWidget, QTableWidgetItem, QAbstractItemView, QAbstractItemDelegate,
+    QDialog, QTextBrowser
 )
 from PyQt6.QtGui import QFont
 from PyQt6.QtCore import Qt
 import csv
+from pathlib import Path
 import sys
 import yaml
 from city_embed_dialog import CityEmbedDialog
 from yacss_api import fetch_templates, fetch_cloud_accounts, YacssApiError
+
+# Bumped by hand alongside CHANGELOG.md -- see that file for what changed
+# at each version. Shown in the window title and the About dialog so a
+# running instance is identifiable, unlike the old hardcoded "v4" (a
+# leftover UI-redesign label, not a real version, that stopped being
+# updated years before this was added).
+__version__ = "0.1.0"
+
+README_PATH = Path(__file__).resolve().parent / "README.md"
+
+
+class HelpDialog(QDialog):
+    """Renders README.md directly -- see that file's own top note: it's
+    deliberately the single source of truth for in-app help AND the
+    GitHub-facing readme, so the two can never drift out of sync the way
+    a hand-duplicated help string would. Gracefully degrades if README.md
+    isn't found alongside main.py (e.g. a PyInstaller --onefile build that
+    didn't bundle it -- see build_exe.bat) rather than crashing."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("How to Use")
+        self.resize(700, 600)
+        layout = QVBoxLayout()
+        browser = QTextBrowser()
+        browser.setOpenExternalLinks(True)
+        try:
+            text = README_PATH.read_text(encoding="utf-8")
+            browser.setMarkdown(text)
+        except OSError as e:
+            browser.setPlainText(
+                f"Could not load README.md from {README_PATH}:\n{e}\n\n"
+                "See the project's GitHub page for documentation instead."
+            )
+        layout.addWidget(browser)
+        self.setLayout(layout)
 
 
 def parse_faq_csv(rows: list) -> list:
@@ -92,7 +130,7 @@ class YAMLForm(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Skippy Cloud Stack – YAML Builder v4")
+        self.setWindowTitle(f"Skippy Cloud Stack – YAML Builder v{__version__}")
         self.setGeometry(200, 200, 1100, 800)
         self.font_size = 10
         self.dark_mode = False
@@ -639,10 +677,12 @@ class YAMLForm(QMainWindow):
             self.city_list.addItem(QListWidgetItem(f"{status} {city}"))
 
     def show_about(self):
-        QMessageBox.information(self, "About", "Skippy Cloud Stack – YAML Builder v4")
+        QMessageBox.information(
+            self, "About", f"Skippy Cloud Stack – YAML Builder v{__version__}"
+        )
 
     def show_usage(self):
-        QMessageBox.information(self, "How to Use", "Complete the form, manage city embed codes, and save your YAML file.")
+        HelpDialog(self).exec()
 
     def load_yaml(self):
         file_name, _ = QFileDialog.getOpenFileName(self, "Open YAML File", "", "YAML Files (*.yaml *.yml)")
