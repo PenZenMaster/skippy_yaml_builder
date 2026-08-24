@@ -4,6 +4,77 @@ from PyQt6.QtWidgets import QFileDialog
 from main import YAMLForm
 
 
+def test_build_type_combo_defaults_to_blank_and_saves_selected_option(
+    qapp, tmp_path, monkeypatch
+):
+    form = YAMLForm()
+    assert form.inputs["YACSS Build Type"].currentText() == ""
+
+    form.inputs["YACSS Build Type"].setCurrentText("Listicle")
+
+    out_file = tmp_path / "out.yaml"
+    monkeypatch.setattr(
+        QFileDialog, "getSaveFileName", lambda *a, **k: (str(out_file), "")
+    )
+    form.save_yaml()
+
+    with open(out_file, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+
+    assert data["YACSS Build Type"] == "Listicle"
+
+
+def test_build_type_combo_loads_matching_option(qapp, tmp_path, monkeypatch):
+    src_file = tmp_path / "in.yaml"
+    with open(src_file, "w", encoding="utf-8") as f:
+        yaml.dump(
+            {"YACSS Build Type": "Masspage_Silo_Local"},
+            f,
+            allow_unicode=True,
+            sort_keys=False,
+        )
+
+    form = YAMLForm()
+    monkeypatch.setattr(
+        QFileDialog, "getOpenFileName", lambda *a, **k: (str(src_file), "")
+    )
+    form.load_yaml()
+
+    assert form.inputs["YACSS Build Type"].currentText() == "Masspage_Silo_Local"
+
+
+def test_build_type_combo_loads_legacy_lowercase_case_insensitively(
+    qapp, tmp_path, monkeypatch
+):
+    src_file = tmp_path / "legacy.yaml"
+    with open(src_file, "w", encoding="utf-8") as f:
+        yaml.dump({"YACSS Build Type": "diagram"}, f, allow_unicode=True, sort_keys=False)
+
+    form = YAMLForm()
+    monkeypatch.setattr(
+        QFileDialog, "getOpenFileName", lambda *a, **k: (str(src_file), "")
+    )
+    form.load_yaml()
+
+    assert form.inputs["YACSS Build Type"].currentText() == "Diagram"
+
+
+def test_build_type_combo_falls_back_to_blank_for_unrecognized_value(
+    qapp, tmp_path, monkeypatch
+):
+    src_file = tmp_path / "bogus.yaml"
+    with open(src_file, "w", encoding="utf-8") as f:
+        yaml.dump({"YACSS Build Type": "nonsense"}, f, allow_unicode=True, sort_keys=False)
+
+    form = YAMLForm()
+    monkeypatch.setattr(
+        QFileDialog, "getOpenFileName", lambda *a, **k: (str(src_file), "")
+    )
+    form.load_yaml()
+
+    assert form.inputs["YACSS Build Type"].currentText() == ""
+
+
 def test_save_splits_one_per_line_fields_into_lists(qapp, tmp_path, monkeypatch):
     form = YAMLForm()
     form.inputs["* Target Cities (one per line)"].setPlainText(

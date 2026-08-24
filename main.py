@@ -2,7 +2,7 @@
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QTextEdit, QPushButton,
     QFileDialog, QMessageBox, QMenuBar, QMainWindow, QMenu, QListWidget, QListWidgetItem, QGridLayout,
-    QScrollArea
+    QScrollArea, QComboBox
 )
 from PyQt6.QtGui import QFont
 from PyQt6.QtCore import Qt
@@ -41,6 +41,9 @@ class YAMLForm(QMainWindow):
         )
         self.main_layout = QVBoxLayout()
 
+        yacss_build_type = QComboBox()
+        yacss_build_type.addItems(["", "Diagram", "Listicle", "Masspage_Silo_Local"])
+
         self.inputs = {
             "* Client Name": QLineEdit(),
             "* Business Category": QLineEdit(),
@@ -71,7 +74,7 @@ class YAMLForm(QMainWindow):
             # they stay grouped and prefixed "YACSS " rather than mixed in
             # above. See rr_yacss_factory's docs/RR_YACSS_Factory_Specifications.md
             # for what each corresponds to on the wire.
-            "YACSS Build Type": QLineEdit(),
+            "YACSS Build Type": yacss_build_type,
             "YACSS Template": QLineEdit(),
             "YACSS Bucket Keyword": QLineEdit(),
             "YACSS Cloud Account IDs (comma separated)": QLineEdit(),
@@ -89,7 +92,6 @@ class YAMLForm(QMainWindow):
         # layout loops below rather than chained onto the dict literal above,
         # to keep that dict a plain widget-per-key mapping.
         self.placeholders = {
-            "YACSS Build Type": "diagram, listicle, or masspage_silo_local",
             "YACSS Template": "e.g. porto-001",
             "YACSS Bucket Keyword": "themed micro-site name -- becomes the real cloud bucket name",
             "YACSS Cloud Account IDs (comma separated)": "e.g. 28205",
@@ -200,6 +202,9 @@ class YAMLForm(QMainWindow):
                     value = "\n".join(str(item) for item in value)
                 if isinstance(widget, QTextEdit):
                     widget.setPlainText(str(value))
+                elif isinstance(widget, QComboBox):
+                    idx = widget.findText(str(value), Qt.MatchFlag.MatchFixedString)
+                    widget.setCurrentIndex(idx if idx >= 0 else 0)
                 else:
                     widget.setText(str(value))
             if "city_embeds" in data and isinstance(data["city_embeds"], dict):
@@ -219,7 +224,12 @@ class YAMLForm(QMainWindow):
                 return
         data = {}
         for k, w in self.inputs.items():
-            text = w.toPlainText() if isinstance(w, QTextEdit) else w.text()
+            if isinstance(w, QTextEdit):
+                text = w.toPlainText()
+            elif isinstance(w, QComboBox):
+                text = w.currentText()
+            else:
+                text = w.text()
             if k in self.LIST_FIELDS:
                 data[k] = [line.strip() for line in text.splitlines() if line.strip()]
             else:
