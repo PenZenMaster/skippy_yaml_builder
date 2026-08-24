@@ -245,9 +245,36 @@ class YAMLForm(QMainWindow):
             "extra/manual account IDs, comma separated -- use if the account "
             "isn't listed above or the live lookup failed"
         )
-        self.main_layout.addWidget(QLabel("YACSS Cloud Account IDs (check one or more):"))
+        self.cloud_account_list_label = QLabel("YACSS Cloud Account IDs (check one or more):")
+        self.main_layout.addWidget(self.cloud_account_list_label)
         self.main_layout.addWidget(self.cloud_account_list)
         self.main_layout.addWidget(self.cloud_account_manual_input)
+
+        # Diagram-only: a real Diagram (cloud_stack) build assigns cloud
+        # accounts PER TIER, not one global list -- rr_yacss_factory's
+        # CloudStackTierInput carries its own cloud_account_ids per tier
+        # (confirmed live), which is exactly the "different platform per
+        # tier of the stack" pattern real Diagram builds use for footprint
+        # diversity. This table's rows are kept in sync with "YACSS Tiers
+        # (tier:pages, one per line)" (see _sync_diagram_tier_table) --
+        # Tier 0 is deliberately never a row here, since tier0_pages has no
+        # cloud_account_ids concept of its own in the real API, only tiers
+        # 1+ do. Shown only when YACSS Build Type is Diagram; the flat
+        # checklist above is shown otherwise (see _update_build_type_ui) --
+        # Listicle/masspage builds target one existing stack's bucket, not
+        # a pyramid, so one flat list is the correct shape for those.
+        self.diagram_tier_table_label = QLabel(
+            "YACSS Diagram Cloud Account IDs Per Tier (synced to YACSS Tiers above):"
+        )
+        self.diagram_tier_accounts_table = QTableWidget(0, 2)
+        self.diagram_tier_accounts_table.setHorizontalHeaderLabels(
+            ["Tier", "Cloud Account IDs (comma separated)"]
+        )
+        self.diagram_tier_accounts_table.horizontalHeader().setStretchLastSection(True)
+        self.diagram_tier_accounts_table.setFont(QFont("Arial", self.font_size))
+        self.diagram_tier_accounts_table.setFixedHeight(120)
+        self.main_layout.addWidget(self.diagram_tier_table_label)
+        self.main_layout.addWidget(self.diagram_tier_accounts_table)
 
         # FAQ Questions & Answers: YACSS's diagram builder needs both, not
         # just a question -- GET /build-fields?type=diagram's FAQ group has
@@ -298,6 +325,12 @@ class YAMLForm(QMainWindow):
         scroll_area.setWidgetResizable(True)
         scroll_area.setWidget(central_widget)
         self.setCentralWidget(scroll_area)
+
+        yacss_build_type.currentTextChanged.connect(self._update_build_type_ui)
+        self.inputs["YACSS Tiers (tier:pages, one per line)"].textChanged.connect(
+            self._sync_diagram_tier_table
+        )
+        self._update_build_type_ui(yacss_build_type.currentText())
 
         self._populate_live_dropdowns()
 
@@ -375,6 +408,148 @@ class YAMLForm(QMainWindow):
         # be silently dropped -- it lands in the manual field instead.
         extras = [i for i in ids if i not in listed_ids]
         self.cloud_account_manual_input.setText(", ".join(extras))
+
+    def _update_build_type_ui(self, build_type: str):
+        """Toggles between the flat cloud-account checklist (Listicle/
+        Masspage_Silo_Local -- one existing stack bucket to publish into)
+        and the per-tier table (Diagram -- see the per-tier table's own
+        comment for why these are genuinely different shapes, not just a
+        UI preference), and relabels YACSS Bucket Keyword, whose real
+        meaning differs by type: for Diagram it names a brand-new bucket
+        YACSS auto-creates at generate time; for Listicle/Masspage it must
+        instead name an EXISTING Diagram build's bucket to publish into
+        (confirmed live in rr_yacss_factory: neither type ever creates a
+        bucket of its own). The underlying YAML key is left unchanged
+        either way -- only the label/placeholder shown to the user
+        differs, so existing files keep loading correctly regardless of
+        which type filled them in."""
+        is_diagram = build_type == "Diagram"
+
+        self.cloud_account_list_label.setVisible(not is_diagram)
+        self.cloud_account_list.setVisible(not is_diagram)
+        self.cloud_account_manual_input.setVisible(not is_diagram)
+        self.diagram_tier_table_label.setVisible(is_diagram)
+        self.diagram_tier_accounts_table.setVisible(is_diagram)
+
+        bucket_label = self.labels["YACSS Bucket Keyword"]
+        bucket_widget = self.inputs["YACSS Bucket Keyword"]
+        if is_diagram:
+            bucket_label.setText("YACSS Bucket Keyword (creates a NEW bucket)")
+            bucket_widget.setPlaceholderText(
+                "themed micro-site name -- becomes the real cloud bucket name"
+            )
+        elif build_type in ("Listicle", "Masspage_Silo_Local"):
+            bucket_label.setText(
+                "YACSS Target Stack Keyword (an EXISTING Diagram build's bucket)"
+            )
+            bucket_widget.setPlaceholderText(
+                "must match an existing Diagram job's own keyword -- this type never creates its own bucket"
+            )
+        else:
+            bucket_label.setText("YACSS Bucket Keyword")
+            bucket_widget.setPlaceholderText(self.placeholders["YACSS Bucket Keyword"])
+
+        if is_diagram:
+            self._sync_diagram_tier_table()
+
+    @staticmethod
+    def _parse_tier_lines(text: str) -> list:
+        """Parses 'YACSS Tiers (tier:pages, one per line)' text into
+        [(tier_number, pages_or_None), ...] in order, skipping blank lines
+        (a real saved YAML file can fold this multi-line value with blank
+        lines between entries -- see save_yaml/load_yaml's plain-scalar
+        handling) and any line whose tier number isn't a plain integer."""
+        result = []
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            tier_part, _, pages_part = line.partition(":")
+            try:
+                tier_num = int(tier_part.strip())
+            except ValueError:
+                continue
+            pages_part = pages_part.strip()
+            result.append((tier_num, pages_part if pages_part else None))
+        return result
+
+    def _sync_diagram_tier_table(self):
+        """Rebuilds diagram_tier_accounts_table's rows to match the tier
+        numbers currently in 'YACSS Tiers (tier:pages, one per line)',
+        preserving any already-entered account IDs for tier numbers that
+        are still present and dropping rows for tier numbers no longer
+        there. Tier 0 is deliberately never a row (see the table's own
+        setup comment)."""
+        existing = {}
+        for row in range(self.diagram_tier_accounts_table.rowCount()):
+            tier_item = self.diagram_tier_accounts_table.item(row, 0)
+            ids_item = self.diagram_tier_accounts_table.item(row, 1)
+            if tier_item is not None:
+                existing[tier_item.data(Qt.ItemDataRole.UserRole)] = (
+                    ids_item.text() if ids_item else ""
+                )
+
+        tiers = self.inputs["YACSS Tiers (tier:pages, one per line)"].toPlainText()
+        parsed = self._parse_tier_lines(tiers)
+
+        self.diagram_tier_accounts_table.setRowCount(0)
+        for tier_num, pages in parsed:
+            row = self.diagram_tier_accounts_table.rowCount()
+            self.diagram_tier_accounts_table.insertRow(row)
+            label = f"Tier {tier_num} ({pages} pages)" if pages else f"Tier {tier_num}"
+            tier_item = QTableWidgetItem(label)
+            tier_item.setFlags(tier_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            tier_item.setData(Qt.ItemDataRole.UserRole, tier_num)
+            self.diagram_tier_accounts_table.setItem(row, 0, tier_item)
+            self.diagram_tier_accounts_table.setItem(
+                row, 1, QTableWidgetItem(existing.get(tier_num, ""))
+            )
+
+    def _serialize_diagram_tier_accounts(self) -> list:
+        rows = []
+        for row in range(self.diagram_tier_accounts_table.rowCount()):
+            tier_item = self.diagram_tier_accounts_table.item(row, 0)
+            ids_item = self.diagram_tier_accounts_table.item(row, 1)
+            ids_text = ids_item.text().strip() if ids_item else ""
+            if tier_item is not None and ids_text:
+                rows.append(
+                    {
+                        "tier": tier_item.data(Qt.ItemDataRole.UserRole),
+                        "cloud_account_ids": ids_text,
+                    }
+                )
+        return rows
+
+    def _load_diagram_tier_accounts(self, rows, legacy_flat_ids: str = ""):
+        """rows is the new "YACSS Diagram Tier Cloud Account IDs" value (a
+        list of {tier, cloud_account_ids} dicts, or None/[] on a file saved
+        before this field existed). legacy_flat_ids is that older file's
+        flat "YACSS Cloud Account IDs" value -- when a Diagram build has no
+        per-tier data at all yet but DOES have a non-empty legacy flat
+        value, every tier row is pre-filled with it as a migration
+        starting point. Without this, loading an old Diagram-type file and
+        saving it again would silently lose its cloud account selection
+        entirely: the flat field is cleared on save for Diagram builds
+        (see _update_build_type_ui's doc comment), and the new per-tier
+        table would otherwise stay blank. Confirmed live against a real
+        pre-existing client file (Overhead Door Joliet) that hit exactly
+        this."""
+        self._sync_diagram_tier_table()
+        by_tier = {}
+        for row in rows or []:
+            if isinstance(row, dict) and "tier" in row:
+                by_tier[row["tier"]] = str(row.get("cloud_account_ids", ""))
+        has_per_tier_data = bool(by_tier)
+        for row in range(self.diagram_tier_accounts_table.rowCount()):
+            tier_item = self.diagram_tier_accounts_table.item(row, 0)
+            tier_num = tier_item.data(Qt.ItemDataRole.UserRole)
+            if tier_num in by_tier:
+                value = by_tier[tier_num]
+            elif not has_per_tier_data and legacy_flat_ids.strip():
+                value = legacy_flat_ids.strip()
+            else:
+                continue
+            self.diagram_tier_accounts_table.setItem(row, 1, QTableWidgetItem(value))
 
     def _add_faq_row(self, question: str = "", answer: str = ""):
         row = self.faq_table.rowCount()
@@ -500,6 +675,14 @@ class YAMLForm(QMainWindow):
                     widget.setText(str(value))
             self._load_cloud_account_ids(data.get("YACSS Cloud Account IDs (comma separated)", ""))
             self._load_faq_rows(data)
+            # Must run after the generic loop above (which just populated
+            # "YACSS Tiers") -- _load_diagram_tier_accounts rebuilds the
+            # per-tier table from that text before filling in saved values.
+            self._load_diagram_tier_accounts(
+                data.get("YACSS Diagram Tier Cloud Account IDs"),
+                legacy_flat_ids=str(data.get("YACSS Cloud Account IDs (comma separated)", "")),
+            )
+            self._update_build_type_ui(self.inputs["YACSS Build Type"].currentText())
             if "city_embeds" in data and isinstance(data["city_embeds"], dict):
                 self.city_data = data["city_embeds"]
                 self.refresh_city_list()
@@ -527,7 +710,17 @@ class YAMLForm(QMainWindow):
                 data[k] = [line.strip() for line in text.splitlines() if line.strip()]
             else:
                 data[k] = text
-        data["YACSS Cloud Account IDs (comma separated)"] = self._serialize_cloud_account_ids()
+        # The two cloud-account fields are mutually exclusive by build type
+        # (see _update_build_type_ui's doc comment) -- write "" / [] for
+        # whichever doesn't apply rather than leaving a stale value in the
+        # saved YAML from before the type was last changed.
+        is_diagram = self.inputs["YACSS Build Type"].currentText() == "Diagram"
+        data["YACSS Cloud Account IDs (comma separated)"] = (
+            "" if is_diagram else self._serialize_cloud_account_ids()
+        )
+        data["YACSS Diagram Tier Cloud Account IDs"] = (
+            self._serialize_diagram_tier_accounts() if is_diagram else []
+        )
         data["FAQ Questions & Answers"] = self._serialize_faq_rows()
         data["city_embeds"] = self.city_data
         file_name, _ = QFileDialog.getSaveFileName(self, "Save YAML File", "", "YAML Files (*.yaml *.yml)")
