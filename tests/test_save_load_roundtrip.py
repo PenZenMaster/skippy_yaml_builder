@@ -182,8 +182,10 @@ def test_full_round_trip_save_then_load(qapp, tmp_path, monkeypatch):
         "Chicago\nNaperville\nJoliet"
     )
     form.inputs["* Services (one per line)"].setPlainText("Roofing\nSiding")
-    form.inputs["FAQ Questions (one per line)"].setPlainText("Q1?\nQ2?")
+    form._add_faq_row("Q1?", "A1.")
+    form._add_faq_row("Q2?", "A2.")
     form.inputs["* Client Name"].setText("Round Trip Co")
+    form.cloud_account_manual_input.setText("28205, 25399")
     form.city_data = {"Chicago, IL": {"embed_code": "<iframe></iframe>"}}
 
     out_file = tmp_path / "roundtrip.yaml"
@@ -206,6 +208,10 @@ def test_full_round_trip_save_then_load(qapp, tmp_path, monkeypatch):
         reloaded.inputs["* Services (one per line)"].toPlainText()
         == "Roofing\nSiding"
     )
-    assert reloaded.inputs["FAQ Questions (one per line)"].toPlainText() == "Q1?\nQ2?"
+    assert reloaded._serialize_faq_rows() == [
+        {"question": "Q1?", "answer": "A1."},
+        {"question": "Q2?", "answer": "A2."},
+    ]
     assert reloaded.inputs["* Client Name"].text() == "Round Trip Co"
+    assert reloaded.cloud_account_manual_input.text() == "28205, 25399"
     assert reloaded.city_data == {"Chicago, IL": {"embed_code": "<iframe></iframe>"}}

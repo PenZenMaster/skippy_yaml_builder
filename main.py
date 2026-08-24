@@ -2,13 +2,14 @@
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QTextEdit, QPushButton,
     QFileDialog, QMessageBox, QMenuBar, QMainWindow, QMenu, QListWidget, QListWidgetItem, QGridLayout,
-    QScrollArea, QComboBox
+    QScrollArea, QComboBox, QTableWidget, QTableWidgetItem, QAbstractItemView
 )
 from PyQt6.QtGui import QFont
 from PyQt6.QtCore import Qt
 import sys
 import yaml
 from city_embed_dialog import CityEmbedDialog
+from yacss_api import fetch_templates, fetch_cloud_accounts, YacssApiError
 
 
 class YAMLForm(QMainWindow):
@@ -19,7 +20,6 @@ class YAMLForm(QMainWindow):
         "* Target Cities (one per line)",
         "* Services (one per line)",
         "Social/Citation URLs (one per line)",
-        "FAQ Questions (one per line)",
     }
 
     def __init__(self):
@@ -44,6 +44,14 @@ class YAMLForm(QMainWindow):
         yacss_build_type = QComboBox()
         yacss_build_type.addItems(["", "Diagram", "Listicle", "Masspage_Silo_Local"])
 
+        # Editable (unlike yacss_build_type above): populated live from
+        # GET /templates on startup (see _populate_live_dropdowns below),
+        # but a template created after that fetch, or entered while the
+        # YACSS API is unreachable, must still be typeable and preserved
+        # on save/load -- see load_yaml's QComboBox branch.
+        yacss_template = QComboBox()
+        yacss_template.setEditable(True)
+
         self.inputs = {
             "* Client Name": QLineEdit(),
             "* Business Category": QLineEdit(),
@@ -67,7 +75,13 @@ class YAMLForm(QMainWindow):
             "Logo URL": QLineEdit(),
             "Contact Email Address": QLineEdit(),
             "Primary Business Category": QLineEdit(),
-            "FAQ Questions (one per line)": QTextEdit(),
+            # FAQ Questions and YACSS Cloud Account IDs are handled by
+            # dedicated widgets below (self.faq_table / self.cloud_account_list),
+            # not through this generic dict -- see _serialize_faq_rows/
+            # _load_faq_rows and _serialize_cloud_account_ids/
+            # _load_cloud_account_ids. Kept out of self.inputs the same way
+            # city_data/city_list already is, for the same reason: each
+            # needs custom (not string/list-of-strings) save/load logic.
             # YACSS build settings: these have no equivalent anywhere else in
             # this form -- they are pure build mechanics for the YACSS API
             # (rr_yacss_factory), not part of the client's own profile, so
@@ -75,9 +89,8 @@ class YAMLForm(QMainWindow):
             # above. See rr_yacss_factory's docs/RR_YACSS_Factory_Specifications.md
             # for what each corresponds to on the wire.
             "YACSS Build Type": yacss_build_type,
-            "YACSS Template": QLineEdit(),
+            "YACSS Template": yacss_template,
             "YACSS Bucket Keyword": QLineEdit(),
-            "YACSS Cloud Account IDs (comma separated)": QLineEdit(),
             "YACSS Tier0 Pages": QLineEdit(),
             "YACSS Tiers (tier:pages, one per line)": QTextEdit(),
             "YACSS AI Platform": QLineEdit(),
@@ -94,7 +107,6 @@ class YAMLForm(QMainWindow):
         self.placeholders = {
             "YACSS Template": "e.g. porto-001",
             "YACSS Bucket Keyword": "themed micro-site name -- becomes the real cloud bucket name",
-            "YACSS Cloud Account IDs (comma separated)": "e.g. 28205",
             "YACSS Tier0 Pages": "1",
             "YACSS Tiers (tier:pages, one per line)": "1:5",
             "YACSS AI Platform": "openai",
@@ -144,6 +156,54 @@ class YAMLForm(QMainWindow):
 
         self.main_layout.addLayout(grid_layout)
 
+        # YACSS Cloud Account IDs: a checkable multi-select list populated
+        # live from GET /cloud-accounts (see _populate_live_dropdowns),
+        # showing each account's client the same way rr_yacss_factory's own
+        # `factory list-cloud-accounts` does -- so two identically-named
+        # accounts under different clients are distinguishable here too
+        # (this is exactly what motivated that CLI command in the first
+        # place). The manual field alongside it is a deliberate fallback,
+        # not a redundant duplicate: if the live fetch fails (no token, no
+        # network) the checklist is simply empty, and this is the only way
+        # to still enter an account id. Also lets an id created after the
+        # last fetch, or one from a plan/cloud not in this account's list,
+        # be entered without needing to restart the app.
+        self.cloud_account_list = QListWidget()
+        self.cloud_account_list.setFont(QFont("Arial", self.font_size))
+        self.cloud_account_list.setFixedHeight(120)
+        self.cloud_account_manual_input = QLineEdit()
+        self.cloud_account_manual_input.setFont(QFont("Arial", self.font_size))
+        self.cloud_account_manual_input.setPlaceholderText(
+            "extra/manual account IDs, comma separated -- use if the account "
+            "isn't listed above or the live lookup failed"
+        )
+        self.main_layout.addWidget(QLabel("YACSS Cloud Account IDs (check one or more):"))
+        self.main_layout.addWidget(self.cloud_account_list)
+        self.main_layout.addWidget(self.cloud_account_manual_input)
+
+        # FAQ Questions & Answers: YACSS's diagram builder needs both, not
+        # just a question -- GET /build-fields?type=diagram's FAQ group has
+        # separate parallel faq_question[]/faq_answer[] arrays, matched by
+        # position; Manual mode (faq_auto=2, no AI credits spent) needs both
+        # filled in per question. A two-column table matches that shape
+        # directly, one row per FAQ.
+        self.faq_table = QTableWidget(0, 2)
+        self.faq_table.setHorizontalHeaderLabels(["Question", "Answer"])
+        self.faq_table.horizontalHeader().setStretchLastSection(True)
+        self.faq_table.setFont(QFont("Arial", self.font_size))
+        self.faq_table.setFixedHeight(150)
+        self.faq_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.add_faq_row_button = QPushButton("Add FAQ Row")
+        self.add_faq_row_button.clicked.connect(lambda: self._add_faq_row())
+        self.remove_faq_row_button = QPushButton("Remove Selected FAQ Row")
+        self.remove_faq_row_button.clicked.connect(self._remove_selected_faq_row)
+        faq_buttons_row = QHBoxLayout()
+        faq_buttons_row.addWidget(self.add_faq_row_button)
+        faq_buttons_row.addWidget(self.remove_faq_row_button)
+        self.main_layout.addWidget(QLabel("FAQ Questions & Answers:"))
+        self.main_layout.addWidget(self.faq_table)
+        self.main_layout.addLayout(faq_buttons_row)
+
         self.city_list = QListWidget()
         self.city_list.setFont(QFont("Arial", self.font_size))
         self.city_list.setFixedHeight(150)
@@ -167,6 +227,129 @@ class YAMLForm(QMainWindow):
         scroll_area.setWidgetResizable(True)
         scroll_area.setWidget(central_widget)
         self.setCentralWidget(scroll_area)
+
+        self._populate_live_dropdowns()
+
+    def _populate_live_dropdowns(self):
+        """Fetches templates/cloud accounts from the live YACSS API to
+        populate the Template combo and Cloud Account checklist. Failure
+        (no token, offline, API error) is non-fatal by design -- both
+        widgets are simply left empty and the form stays fully usable via
+        the Template combo's own editability and the cloud-account manual
+        fallback field. A single combined warning covers both calls so an
+        expected failure mode (e.g. no network) doesn't produce two popups."""
+        errors = []
+        try:
+            self._populate_template_combo(fetch_templates())
+        except YacssApiError as exc:
+            errors.append(str(exc))
+        try:
+            self._populate_cloud_account_list(fetch_cloud_accounts())
+        except YacssApiError as exc:
+            errors.append(str(exc))
+        if errors:
+            QMessageBox.warning(
+                self,
+                "YACSS live lookup unavailable",
+                "Could not load live YACSS Template/Cloud Account data -- "
+                "both fields still work manually.\n\n" + "\n".join(errors),
+            )
+
+    def _populate_template_combo(self, templates: list):
+        combo = self.inputs["YACSS Template"]
+        combo.clear()
+        combo.addItem("")
+        for template in templates:
+            combo.addItem(template["id"])
+            combo.setItemData(
+                combo.count() - 1, template["name"], Qt.ItemDataRole.ToolTipRole
+            )
+
+    def _populate_cloud_account_list(self, accounts: list):
+        self.cloud_account_list.clear()
+        for account in accounts:
+            label_parts = [account["id"], account.get("provider", ""), account.get("name", "")]
+            if account.get("client"):
+                label_parts.append(f"(client: {account['client']})")
+            item = QListWidgetItem(" -- ".join(part for part in label_parts if part))
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Unchecked)
+            item.setData(Qt.ItemDataRole.UserRole, account["id"])
+            self.cloud_account_list.addItem(item)
+
+    def _serialize_cloud_account_ids(self) -> str:
+        ids = []
+        for i in range(self.cloud_account_list.count()):
+            item = self.cloud_account_list.item(i)
+            if item.checkState() == Qt.CheckState.Checked:
+                ids.append(item.data(Qt.ItemDataRole.UserRole))
+        for extra in self.cloud_account_manual_input.text().split(","):
+            extra = extra.strip()
+            if extra and extra not in ids:
+                ids.append(extra)
+        return ",".join(ids)
+
+    def _load_cloud_account_ids(self, raw):
+        ids = [v.strip() for v in str(raw).split(",") if v.strip()]
+        listed_ids = set()
+        for i in range(self.cloud_account_list.count()):
+            item = self.cloud_account_list.item(i)
+            item_id = item.data(Qt.ItemDataRole.UserRole)
+            listed_ids.add(item_id)
+            item.setCheckState(
+                Qt.CheckState.Checked if item_id in ids else Qt.CheckState.Unchecked
+            )
+        # An id not in the live-fetched list (stale list, id created since
+        # the last fetch, or the API was unreachable at load time) must not
+        # be silently dropped -- it lands in the manual field instead.
+        extras = [i for i in ids if i not in listed_ids]
+        self.cloud_account_manual_input.setText(", ".join(extras))
+
+    def _add_faq_row(self, question: str = "", answer: str = ""):
+        row = self.faq_table.rowCount()
+        self.faq_table.insertRow(row)
+        self.faq_table.setItem(row, 0, QTableWidgetItem(question))
+        self.faq_table.setItem(row, 1, QTableWidgetItem(answer))
+
+    def _remove_selected_faq_row(self):
+        row = self.faq_table.currentRow()
+        if row >= 0:
+            self.faq_table.removeRow(row)
+
+    def _serialize_faq_rows(self) -> list:
+        rows = []
+        for r in range(self.faq_table.rowCount()):
+            q_item = self.faq_table.item(r, 0)
+            a_item = self.faq_table.item(r, 1)
+            question = q_item.text().strip() if q_item else ""
+            answer = a_item.text().strip() if a_item else ""
+            if question:
+                rows.append({"question": question, "answer": answer})
+        return rows
+
+    def _load_faq_rows(self, data: dict):
+        self.faq_table.setRowCount(0)
+        rows = data.get("FAQ Questions & Answers")
+        if rows is None:
+            # Backward compat: older YAML files saved this as a flat list
+            # of question strings (or, older still, a raw newline string)
+            # under the field's old name, with no answer at all.
+            legacy = data.get("FAQ Questions (one per line)")
+            if isinstance(legacy, list):
+                rows = [{"question": str(q), "answer": ""} for q in legacy]
+            elif isinstance(legacy, str) and legacy.strip():
+                rows = [
+                    {"question": line.strip(), "answer": ""}
+                    for line in legacy.splitlines()
+                    if line.strip()
+                ]
+            else:
+                rows = []
+        for row in rows:
+            if isinstance(row, dict):
+                self._add_faq_row(str(row.get("question", "")), str(row.get("answer", "")))
+            else:
+                self._add_faq_row(str(row), "")
 
     def open_city_dialog(self):
         dialog = CityEmbedDialog(self)
@@ -204,9 +387,22 @@ class YAMLForm(QMainWindow):
                     widget.setPlainText(str(value))
                 elif isinstance(widget, QComboBox):
                     idx = widget.findText(str(value), Qt.MatchFlag.MatchFixedString)
-                    widget.setCurrentIndex(idx if idx >= 0 else 0)
+                    if idx >= 0:
+                        widget.setCurrentIndex(idx)
+                    elif widget.isEditable():
+                        # YACSS Template: a saved value not in the live-
+                        # fetched list (fetch failed, or the template was
+                        # created since) must still be preserved verbatim,
+                        # not silently replaced by whatever is at index 0
+                        # -- unlike YACSS Build Type below, which has a
+                        # fixed, non-editable option set.
+                        widget.setEditText(str(value))
+                    else:
+                        widget.setCurrentIndex(0)
                 else:
                     widget.setText(str(value))
+            self._load_cloud_account_ids(data.get("YACSS Cloud Account IDs (comma separated)", ""))
+            self._load_faq_rows(data)
             if "city_embeds" in data and isinstance(data["city_embeds"], dict):
                 self.city_data = data["city_embeds"]
                 self.refresh_city_list()
@@ -234,6 +430,8 @@ class YAMLForm(QMainWindow):
                 data[k] = [line.strip() for line in text.splitlines() if line.strip()]
             else:
                 data[k] = text
+        data["YACSS Cloud Account IDs (comma separated)"] = self._serialize_cloud_account_ids()
+        data["FAQ Questions & Answers"] = self._serialize_faq_rows()
         data["city_embeds"] = self.city_data
         file_name, _ = QFileDialog.getSaveFileName(self, "Save YAML File", "", "YAML Files (*.yaml *.yml)")
         if file_name:

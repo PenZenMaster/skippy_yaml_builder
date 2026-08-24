@@ -1,2 +1,4 @@
 PyQt6
 PyYAML
+requests
+python-dotenv
