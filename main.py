@@ -2,7 +2,7 @@
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QTextEdit, QPushButton,
     QFileDialog, QMessageBox, QMenuBar, QMainWindow, QMenu, QListWidget, QListWidgetItem, QGridLayout,
-    QScrollArea, QComboBox, QTableWidget, QTableWidgetItem, QAbstractItemView
+    QScrollArea, QComboBox, QTableWidget, QTableWidgetItem, QAbstractItemView, QAbstractItemDelegate
 )
 from PyQt6.QtGui import QFont
 from PyQt6.QtCore import Qt
@@ -10,6 +10,47 @@ import sys
 import yaml
 from city_embed_dialog import CityEmbedDialog
 from yacss_api import fetch_templates, fetch_cloud_accounts, YacssApiError
+
+
+class _FaqTableWidget(QTableWidget):
+    """QTableWidget whose Enter/Return key advances Question -> Answer
+    (same row, opened for editing) or Answer -> a new row's Question.
+
+    Qt's own default for a plain Return/Enter press while editing a cell
+    is to commit the edit and re-select the SAME cell without opening it
+    for editing (closeEditor is called with hint SubmitModelCache -- Tab
+    uses a different hint, EditNextItem, and already does the right thing
+    unmodified, which is why only SubmitModelCache is intercepted here).
+    QA found that default behavior effectively traps a user in the
+    Question cell: pressing Enter after typing a question looks like
+    nothing happened, and typing again silently overwrites the question
+    just entered, since it starts a fresh edit on the still-selected,
+    no-longer-editing cell. Overriding keyPressEvent does NOT work for
+    this -- while a cell is being edited, key events go to the editor
+    widget (a child QLineEdit), not to the table's own keyPressEvent, so
+    Return never reaches it; closeEditor is the actual interception point,
+    confirmed live via a throwaway probe subclass that logged the real
+    hint Qt sends."""
+
+    def closeEditor(self, editor, hint):
+        if hint != QAbstractItemDelegate.EndEditHint.SubmitModelCache:
+            super().closeEditor(editor, hint)
+            return
+        row, col = self.currentRow(), self.currentColumn()
+        super().closeEditor(editor, QAbstractItemDelegate.EndEditHint.NoHint)
+        if row < 0:
+            return
+        if col == 0:
+            self.setCurrentCell(row, 1)
+            self.editItem(self.item(row, 1))
+        else:
+            next_row = row + 1
+            if next_row >= self.rowCount():
+                self.insertRow(next_row)
+                self.setItem(next_row, 0, QTableWidgetItem(""))
+                self.setItem(next_row, 1, QTableWidgetItem(""))
+            self.setCurrentCell(next_row, 0)
+            self.editItem(self.item(next_row, 0))
 
 
 class YAMLForm(QMainWindow):
@@ -187,7 +228,7 @@ class YAMLForm(QMainWindow):
         # position; Manual mode (faq_auto=2, no AI credits spent) needs both
         # filled in per question. A two-column table matches that shape
         # directly, one row per FAQ.
-        self.faq_table = QTableWidget(0, 2)
+        self.faq_table = _FaqTableWidget(0, 2)
         self.faq_table.setHorizontalHeaderLabels(["Question", "Answer"])
         self.faq_table.horizontalHeader().setStretchLastSection(True)
         self.faq_table.setFont(QFont("Arial", self.font_size))
