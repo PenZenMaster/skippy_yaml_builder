@@ -20,6 +20,37 @@ def _fill_required_fields(form):
     form.inputs["YACSS Tier0 Pages"].setText("1")
 
 
+def test_page_titles_count_label_updates_live_as_tiers_change(qapp):
+    form = YAMLForm()
+    label = form.labels["YACSS Diagram Page Titles (one per line)"]
+
+    form.inputs["YACSS Tier0 Pages"].setText("1")
+    form.inputs["YACSS Tiers (tier:pages, one per line)"].setPlainText("1:3")
+    assert "need 4, have 0" in label.text()
+
+    form.inputs["YACSS Diagram Page Titles (one per line)"].setPlainText(
+        "Home\nPage 1\nPage 2\nPage 3"
+    )
+    assert "4/4 OK" in label.text()
+
+    # Adding a tier changes the multiplicative total live, without
+    # touching the Page Titles field itself.
+    form.inputs["YACSS Tiers (tier:pages, one per line)"].setPlainText("1:3\n2:2")
+    assert "need 10, have 4" in label.text()
+
+
+def test_page_titles_count_label_handles_non_numeric_tier0_pages(qapp):
+    form = YAMLForm()
+    label = form.labels["YACSS Diagram Page Titles (one per line)"]
+
+    form.inputs["YACSS Tier0 Pages"].setText("not a number")
+    form.inputs["YACSS Diagram Page Titles (one per line)"].setPlainText("Home")
+
+    # Must not raise -- non-numeric input is treated as 0 rather than
+    # crashing the live update.
+    assert "need 0, have 1" in label.text()
+
+
 def test_slugify_basic():
     assert YAMLForm._slugify("Acme Plumbing Co.") == "acme-plumbing-co"
     assert YAMLForm._slugify("  Multiple   Spaces  ") == "multiple-spaces"

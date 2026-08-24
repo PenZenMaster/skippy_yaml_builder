@@ -67,8 +67,10 @@ reads, ready to draft/generate/publish from there. Two fields exist only
 to feed this export and aren't part of the saved client YAML's older
 sections: `YACSS Diagram Page Titles (one per line)` (must contain
 exactly one title per real page -- see the multiplicative math above,
-not a plain sum of tier sizes) and `YACSS Diagram Content` (the page
-body text). If anything looks incomplete when you export (a blank
+not a plain sum of tier sizes; its own label updates live as you type,
+e.g. "need 40, have 12", so you don't have to compute the total by
+hand) and `YACSS Diagram Content` (the page body text). If anything
+looks incomplete when you export (a blank
 required field, a page-title count that doesn't match the real total, a
 tier with no cloud accounts assigned), you'll get a warning listing the
 specific issues and a chance to cancel -- exporting anyway is still

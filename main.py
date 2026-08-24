@@ -391,7 +391,15 @@ class YAMLForm(QMainWindow):
         self.inputs["YACSS Tiers (tier:pages, one per line)"].textChanged.connect(
             self._sync_diagram_tier_table
         )
+        # _sync_diagram_tier_table (above) already refreshes the counter
+        # whenever Tiers changes; these two also affect the expected/actual
+        # count directly and need their own wiring.
+        self.inputs["YACSS Tier0 Pages"].textChanged.connect(self._update_page_titles_count_label)
+        self.inputs["YACSS Diagram Page Titles (one per line)"].textChanged.connect(
+            self._update_page_titles_count_label
+        )
         self._update_build_type_ui(yacss_build_type.currentText())
+        self._update_page_titles_count_label()
 
         self._populate_live_dropdowns()
 
@@ -565,6 +573,7 @@ class YAMLForm(QMainWindow):
             self.diagram_tier_accounts_table.setItem(
                 row, 1, QTableWidgetItem(existing.get(tier_num, ""))
             )
+        self._update_page_titles_count_label()
 
     def _serialize_diagram_tier_accounts(self) -> list:
         rows = []
@@ -632,6 +641,52 @@ class YAMLForm(QMainWindow):
             total += running_product
         return total
 
+    def _tier_pages_from_table(self) -> list:
+        """Each row's page count (as an int, 0 if unparseable), in the same
+        order as diagram_tier_accounts_table's rows -- parsed from the row
+        label _sync_diagram_tier_table wrote (e.g. "Tier 1 (3 pages)").
+        The single source of truth both _build_cloud_stack_job and the
+        live page-titles counter (_update_page_titles_count_label) use, so
+        the two can never disagree about the expected total."""
+        pages = []
+        for row in range(self.diagram_tier_accounts_table.rowCount()):
+            tier_item = self.diagram_tier_accounts_table.item(row, 0)
+            match = re.search(r"\((\d+) pages\)", tier_item.text()) if tier_item else None
+            pages.append(int(match.group(1)) if match else 0)
+        return pages
+
+    def _update_page_titles_count_label(self):
+        """Keeps the Page Titles field's own label showing, live, exactly
+        how many titles are needed -- the multiplicative total isn't
+        something a user can mentally compute from Tier0 Pages/Tiers
+        alone, and previously the only feedback was a warning after
+        clicking Export."""
+        try:
+            tier0_pages = int(self.inputs["YACSS Tier0 Pages"].text().strip() or "0")
+        except ValueError:
+            tier0_pages = 0
+        expected = self._compute_cloud_stack_total_pages(
+            tier0_pages, self._tier_pages_from_table()
+        )
+        current = len(
+            [
+                line
+                for line in self.inputs["YACSS Diagram Page Titles (one per line)"]
+                .toPlainText()
+                .splitlines()
+                if line.strip()
+            ]
+        )
+        label = self.labels["YACSS Diagram Page Titles (one per line)"]
+        if current == expected:
+            label.setText(f"YACSS Diagram Page Titles (one per line) -- {current}/{expected} OK")
+            label.setStyleSheet("color: green;")
+        else:
+            label.setText(
+                f"YACSS Diagram Page Titles (one per line) -- need {expected}, have {current}"
+            )
+            label.setStyleSheet("color: #b00000;")
+
     def _build_cloud_stack_job(self):
         """Builds a rr_yacss_factory CloudStackJob dict from the current
         form state, plus a list of human-readable warnings for anything
@@ -671,18 +726,19 @@ class YAMLForm(QMainWindow):
             warnings.append(f"YACSS Tier0 Pages {tier0_pages_raw!r} is not a whole number -- treated as 0")
             tier0_pages = 0
 
+        tier_pages = self._tier_pages_from_table()
         tiers = []
         for row in range(self.diagram_tier_accounts_table.rowCount()):
             tier_item = self.diagram_tier_accounts_table.item(row, 0)
             ids_item = self.diagram_tier_accounts_table.item(row, 1)
             tier_num = tier_item.data(Qt.ItemDataRole.UserRole)
             ids_text = ids_item.text().strip() if ids_item else ""
-            pages_match = re.search(r"\((\d+) pages\)", tier_item.text())
-            pages = int(pages_match.group(1)) if pages_match else 0
             account_ids = [v.strip() for v in ids_text.split(",") if v.strip()]
             if not account_ids:
                 warnings.append(f"Tier {tier_num} has no Cloud Account IDs assigned")
-            tiers.append({"tier": tier_num, "pages": pages, "cloud_account_ids": account_ids})
+            tiers.append(
+                {"tier": tier_num, "pages": tier_pages[row], "cloud_account_ids": account_ids}
+            )
 
         page_titles = [
             line.strip()
