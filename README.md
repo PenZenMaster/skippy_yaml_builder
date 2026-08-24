@@ -13,3 +13,10 @@ venv\Scripts\activate
 pip install -r requirements.txt
 python main.py
 ```
+
+To run tests:
+```bash
+venv\Scripts\activate
+pip install -r requirements-dev.txt
+pytest
+```

@@ -43,6 +43,7 @@ desktop.ini
 
 # Cache files
 .cache/
+.pytest_cache/
 *.bak
 *.tmp
 
