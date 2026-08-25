@@ -2,7 +2,7 @@ import json
 
 from PyQt6.QtWidgets import QFileDialog, QMessageBox, QTableWidgetItem
 
-from main import YAMLForm
+from main import DEFAULT_JOB_EXPORT_DIR, YAMLForm
 
 
 def _fill_required_fields(form):
@@ -409,6 +409,28 @@ def test_export_job_json_writes_masspage_job(qapp, tmp_path, monkeypatch):
     assert len(data) == 1
     assert data[0]["type"] == "masspage"
     assert data[0]["job_id"] == "acme-plumbing"
+
+
+def test_export_job_json_defaults_save_dialog_to_rr_yacss_factory_jobs_dir(qapp, monkeypatch):
+    form = YAMLForm()
+    _fill_required_fields(form)
+    form.inputs["YACSS Diagram Content"].setPlainText("content")
+
+    captured_default_path = []
+    # This form has warnings (no tiers/page_titles filled in) -- answering
+    # "Yes" (proceed anyway) is required to reach the save dialog call at
+    # all, which is what this test needs to observe.
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+
+    def fake_save_dialog(*args, **kwargs):
+        captured_default_path.append(args[2])
+        return ("", "")
+
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", fake_save_dialog)
+
+    form.export_job_json()
+
+    assert captured_default_path == [str(DEFAULT_JOB_EXPORT_DIR / "acme-plumbing.json")]
 
 
 def test_export_job_json_writes_valid_json_when_warnings_accepted(qapp, tmp_path, monkeypatch):

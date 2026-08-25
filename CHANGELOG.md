@@ -3,6 +3,16 @@
 All notable changes to this project are documented in this file. Format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.2] - 2026-08-24
+
+### Changed
+
+- **Export Job JSON now defaults to rr_yacss_factory's own `jobs/`
+  folder** instead of an unqualified filename (wherever the dialog
+  last opened). Assumes both projects are checked out under the same
+  parent directory, same as `yacss_api.py`'s existing `.env` lookup;
+  falls back to this file's own directory if that folder isn't found.
+
 ## [0.3.1] - 2026-08-24
 
 ### Added

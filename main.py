@@ -22,9 +22,23 @@ from yacss_api import fetch_templates, fetch_cloud_accounts, YacssApiError
 # running instance is identifiable, unlike the old hardcoded "v4" (a
 # leftover UI-redesign label, not a real version, that stopped being
 # updated years before this was added).
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 
 README_PATH = Path(__file__).resolve().parent / "README.md"
+
+# Export Job JSON's default save directory -- rr_yacss_factory's own jobs/
+# folder, where every existing job file (example-*.json, real client jobs)
+# already lives, so `factory run -f jobs/<name>.json` works with no path
+# juggling. Same sibling-directory assumption as yacss_api.py's
+# RR_YACSS_FACTORY_ENV (both projects checked out under the same parent,
+# e.g. E:\projects\rr_yacss_factory and E:\projects\skippy_yaml_builder).
+# Falls back to this file's own directory if that folder doesn't exist
+# (e.g. rr_yacss_factory not checked out on this machine) rather than
+# pointing the save dialog at a nonexistent path.
+_RR_YACSS_FACTORY_JOBS_DIR = Path(__file__).resolve().parent.parent / "rr_yacss_factory" / "jobs"
+DEFAULT_JOB_EXPORT_DIR = (
+    _RR_YACSS_FACTORY_JOBS_DIR if _RR_YACSS_FACTORY_JOBS_DIR.is_dir() else Path(__file__).resolve().parent
+)
 
 
 class HelpDialog(QDialog):
@@ -1142,9 +1156,9 @@ class YAMLForm(QMainWindow):
             if reply != QMessageBox.StandardButton.Yes:
                 return
 
-        default_name = f"{job['job_id']}.json"
+        default_path = str(DEFAULT_JOB_EXPORT_DIR / f"{job['job_id']}.json")
         file_name, _ = QFileDialog.getSaveFileName(
-            self, "Export Job JSON", default_name, "JSON Files (*.json)"
+            self, "Export Job JSON", default_path, "JSON Files (*.json)"
         )
         if not file_name:
             return
