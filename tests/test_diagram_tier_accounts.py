@@ -81,6 +81,27 @@ def test_topic_keyword_hidden_for_diagram_shown_for_listicle_and_masspage(qapp):
     assert form.inputs["YACSS Topic Keyword"].isVisibleTo(form) is True
 
 
+def test_brand_and_url_fields_shown_only_for_listicle(qapp):
+    form = YAMLForm()
+    form.main_tabs.setCurrentWidget(form.inputs["YACSS Brand Name"].parentWidget())
+    brand_fields = [
+        "YACSS Brand Name",
+        "YACSS Brand URL",
+        "YACSS Brand Position",
+        "YACSS Competitor URLs (one per line)",
+        "YACSS Target URLs (one per line)",
+    ]
+
+    form.inputs["YACSS Build Type"].setCurrentText("Diagram")
+    assert all(form.inputs[k].isVisibleTo(form) is False for k in brand_fields)
+
+    form.inputs["YACSS Build Type"].setCurrentText("Masspage_Silo_Local")
+    assert all(form.inputs[k].isVisibleTo(form) is False for k in brand_fields)
+
+    form.inputs["YACSS Build Type"].setCurrentText("Listicle")
+    assert all(form.inputs[k].isVisibleTo(form) is True for k in brand_fields)
+
+
 def test_sync_diagram_tier_table_builds_one_row_per_tier(qapp):
     form = YAMLForm()
     form.inputs["YACSS Build Type"].setCurrentText("Diagram")

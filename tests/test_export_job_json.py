@@ -228,6 +228,104 @@ def test_build_listicle_job_warns_on_blank_required_fields(qapp):
     assert job["job_id"] == "listicle-job"
 
 
+def test_build_listicle_job_includes_brand_and_urls_when_filled_in(qapp):
+    form = YAMLForm()
+    form.inputs["YACSS Build Type"].setCurrentText("Listicle")
+    _fill_listicle_masspage_shared_fields(form)
+    form.inputs["YACSS AI Model"].setText("gpt-5-mini")
+    form.inputs["YACSS Tone"].setText("friendly")
+    form.inputs["YACSS Language"].setText("en")
+    form.inputs["YACSS Items Per Listicle"].setText("6")
+    form.inputs["YACSS Brand Name"].setText("Acme Coffee Co")
+    form.inputs["YACSS Brand URL"].setText("https://acmecoffee.example")
+    form.inputs["YACSS Brand Position"].setText("1")
+    form.inputs["YACSS Competitor URLs (one per line)"].setPlainText(
+        "https://someothercafe.example"
+    )
+    form.inputs["YACSS Target URLs (one per line)"].setPlainText(
+        "https://acmecoffee.example\nhttps://acmecoffee.example/menu"
+    )
+
+    job, warnings = form._build_listicle_job()
+
+    assert warnings == []
+    assert job["brand"] == {"name": "Acme Coffee Co", "url": "https://acmecoffee.example", "position": 1}
+    assert job["competitor_urls"] == ["https://someothercafe.example"]
+    assert job["target_urls"] == [
+        "https://acmecoffee.example",
+        "https://acmecoffee.example/menu",
+    ]
+
+
+def test_build_listicle_job_omits_brand_and_urls_when_blank(qapp):
+    form = YAMLForm()
+    form.inputs["YACSS Build Type"].setCurrentText("Listicle")
+    _fill_listicle_masspage_shared_fields(form)
+    form.inputs["YACSS AI Model"].setText("gpt-5-mini")
+    form.inputs["YACSS Tone"].setText("friendly")
+    form.inputs["YACSS Language"].setText("en")
+    form.inputs["YACSS Items Per Listicle"].setText("6")
+
+    job, warnings = form._build_listicle_job()
+
+    assert warnings == []
+    assert "brand" not in job
+    assert "competitor_urls" not in job
+    assert "target_urls" not in job
+
+
+def test_build_listicle_job_warns_on_brand_name_without_url(qapp):
+    form = YAMLForm()
+    form.inputs["YACSS Build Type"].setCurrentText("Listicle")
+    _fill_listicle_masspage_shared_fields(form)
+    form.inputs["YACSS AI Model"].setText("gpt-5-mini")
+    form.inputs["YACSS Tone"].setText("friendly")
+    form.inputs["YACSS Language"].setText("en")
+    form.inputs["YACSS Items Per Listicle"].setText("6")
+    form.inputs["YACSS Brand Name"].setText("Acme Coffee Co")
+    # Brand URL left blank.
+
+    job, warnings = form._build_listicle_job()
+
+    assert any("Brand Name is set but" in w and "Brand URL is blank" in w for w in warnings)
+    assert "brand" not in job
+
+
+def test_build_listicle_job_warns_on_brand_url_without_name(qapp):
+    form = YAMLForm()
+    form.inputs["YACSS Build Type"].setCurrentText("Listicle")
+    _fill_listicle_masspage_shared_fields(form)
+    form.inputs["YACSS AI Model"].setText("gpt-5-mini")
+    form.inputs["YACSS Tone"].setText("friendly")
+    form.inputs["YACSS Language"].setText("en")
+    form.inputs["YACSS Items Per Listicle"].setText("6")
+    form.inputs["YACSS Brand URL"].setText("https://acmecoffee.example")
+    # Brand Name left blank.
+
+    job, warnings = form._build_listicle_job()
+
+    assert any("Brand URL is set but" in w and "Brand Name is blank" in w for w in warnings)
+    assert "brand" not in job
+
+
+def test_build_listicle_job_warns_on_non_positive_brand_position(qapp):
+    form = YAMLForm()
+    form.inputs["YACSS Build Type"].setCurrentText("Listicle")
+    _fill_listicle_masspage_shared_fields(form)
+    form.inputs["YACSS AI Model"].setText("gpt-5-mini")
+    form.inputs["YACSS Tone"].setText("friendly")
+    form.inputs["YACSS Language"].setText("en")
+    form.inputs["YACSS Items Per Listicle"].setText("6")
+    form.inputs["YACSS Brand Name"].setText("Acme Coffee Co")
+    form.inputs["YACSS Brand URL"].setText("https://acmecoffee.example")
+    form.inputs["YACSS Brand Position"].setText("0")
+
+    job, warnings = form._build_listicle_job()
+
+    assert any("Brand Position" in w and "not a positive" in w for w in warnings)
+    assert job["brand"] == {"name": "Acme Coffee Co", "url": "https://acmecoffee.example"}
+
+
 def test_build_masspage_job_happy_path_no_warnings(qapp):
     form = YAMLForm()
     form.inputs["YACSS Build Type"].setCurrentText("Masspage_Silo_Local")

@@ -3,6 +3,20 @@
 All notable changes to this project are documented in this file. Format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.1] - 2026-08-24
+
+### Added
+
+- **Listicle brand placement + competitor/target URLs.** Three new
+  fields -- `YACSS Brand Name`, `YACSS Brand URL`, `YACSS Brand
+  Position` -- map to `ListicleJob.brand` (src/jobs/schema.ts's
+  `brandPlacementSchema`), plus `YACSS Competitor URLs (one per
+  line)`/`YACSS Target URLs (one per line)` for `competitor_urls`/
+  `target_urls`. All five are optional and shown only for the Listicle
+  build type. `brand` requires both name and url once either is
+  filled in -- a partial entry warns and is omitted rather than sent
+  incomplete. Verified live against rr_yacss_factory's own `parseJob()`.
+
 ## [0.3.0] - 2026-08-24
 
 ### Added

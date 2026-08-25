@@ -22,7 +22,7 @@ from yacss_api import fetch_templates, fetch_cloud_accounts, YacssApiError
 # running instance is identifiable, unlike the old hardcoded "v4" (a
 # leftover UI-redesign label, not a real version, that stopped being
 # updated years before this was added).
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 README_PATH = Path(__file__).resolve().parent / "README.md"
 
@@ -130,6 +130,8 @@ class YAMLForm(QMainWindow):
         "* Services (one per line)",
         "Social/Citation URLs (one per line)",
         "YACSS Diagram Page Titles (one per line)",
+        "YACSS Competitor URLs (one per line)",
+        "YACSS Target URLs (one per line)",
     }
 
     # Which tab each self.inputs field appears on -- every key in self.inputs
@@ -153,6 +155,8 @@ class YAMLForm(QMainWindow):
         "YACSS Build Type", "YACSS Template", "YACSS Bucket Keyword", "YACSS Topic Keyword",
         "YACSS Tier0 Pages", "YACSS Tiers (tier:pages, one per line)", "YACSS AI Platform",
         "YACSS AI Model", "YACSS Tone", "YACSS Language", "YACSS Items Per Listicle",
+        "YACSS Brand Name", "YACSS Brand URL", "YACSS Brand Position",
+        "YACSS Competitor URLs (one per line)", "YACSS Target URLs (one per line)",
         "YACSS Diagram Page Titles (one per line)", "YACSS Diagram Content",
     ]
 
@@ -244,6 +248,19 @@ class YAMLForm(QMainWindow):
             "YACSS Tone": QLineEdit(),
             "YACSS Language": QLineEdit(),
             "YACSS Items Per Listicle": QLineEdit(),
+            # Listicle-only, all optional in the real ListicleJob schema
+            # (src/jobs/schema.ts's brandPlacementSchema/competitor_urls/
+            # target_urls) -- brand is a client's own site placed inside the
+            # generated listicle at a given rank; competitor/target URLs feed
+            # the AI's own competitive research. brand.name/brand.url are
+            # both required if brand is used at all (position is optional
+            # within it) -- see _build_listicle_job's own doc comment for
+            # the omit-if-blank / warn-if-partial handling.
+            "YACSS Brand Name": QLineEdit(),
+            "YACSS Brand URL": QLineEdit(),
+            "YACSS Brand Position": QLineEdit(),
+            "YACSS Competitor URLs (one per line)": QTextEdit(),
+            "YACSS Target URLs (one per line)": QTextEdit(),
             # Required by rr_yacss_factory's real CloudStackJob (and, later,
             # MasspageJob) but never previously captured anywhere in this
             # form: page_titles must contain exactly one title per line
@@ -270,6 +287,11 @@ class YAMLForm(QMainWindow):
             "YACSS Tone": "friendly",
             "YACSS Language": "en",
             "YACSS Items Per Listicle": "6",
+            "YACSS Brand Name": "e.g. Acme Coffee Co (optional -- leave blank to skip brand placement)",
+            "YACSS Brand URL": "https://acmecoffee.example",
+            "YACSS Brand Position": "e.g. 1 (optional, must be a positive whole number)",
+            "YACSS Competitor URLs (one per line)": "https://someothercafe.example",
+            "YACSS Target URLs (one per line)": "https://acmecoffee.example",
             "YACSS Diagram Content": "free-form paragraph text for the stack's pages",
         }
 
@@ -594,6 +616,19 @@ class YAMLForm(QMainWindow):
         # Diagram/cloud_stack, which has no separate topic concept.
         self.labels["YACSS Topic Keyword"].setVisible(not is_diagram)
         self.inputs["YACSS Topic Keyword"].setVisible(not is_diagram)
+        # Brand placement + competitor/target URLs exist only on the real
+        # ListicleJob schema (src/jobs/schema.ts) -- cloud_stack and masspage
+        # have no equivalent fields at all, not even optional ones.
+        is_listicle = build_type == "Listicle"
+        for key in (
+            "YACSS Brand Name",
+            "YACSS Brand URL",
+            "YACSS Brand Position",
+            "YACSS Competitor URLs (one per line)",
+            "YACSS Target URLs (one per line)",
+        ):
+            self.labels[key].setVisible(is_listicle)
+            self.inputs[key].setVisible(is_listicle)
 
         bucket_label = self.labels["YACSS Bucket Keyword"]
         bucket_widget = self.inputs["YACSS Bucket Keyword"]
@@ -908,8 +943,11 @@ class YAMLForm(QMainWindow):
         ("YACSS Bucket Keyword", relabeled for this type -- see
         _update_build_type_ui and rr_yacss_factory's
         bucketAndDirectoryForJob()). brand/competitor_urls/target_urls are
-        optional in the real schema and have no field in this form yet, so
-        they're simply omitted rather than sent empty."""
+        all optional in the real schema -- each is included only when the
+        user actually filled it in, same as cloud_stack's FAQ
+        extra_fields; brand itself requires BOTH name and url once used
+        (brandPlacementSchema), so a partial entry (only one of the two)
+        warns rather than silently sending an incomplete/rejected object."""
         warnings = []
 
         def require(value: str, label: str):
@@ -963,6 +1001,46 @@ class YAMLForm(QMainWindow):
             "cloud_account_ids": cloud_account_ids,
             "lsi_keyword": lsi_keyword,
         }
+
+        brand_name = self.inputs["YACSS Brand Name"].text().strip()
+        brand_url = self.inputs["YACSS Brand URL"].text().strip()
+        brand_position_raw = self.inputs["YACSS Brand Position"].text().strip()
+        if brand_name or brand_url:
+            if not brand_name:
+                warnings.append("YACSS Brand URL is set but YACSS Brand Name is blank -- brand omitted")
+            elif not brand_url:
+                warnings.append("YACSS Brand Name is set but YACSS Brand URL is blank -- brand omitted")
+            else:
+                brand = {"name": brand_name, "url": brand_url}
+                if brand_position_raw:
+                    try:
+                        position = int(brand_position_raw)
+                        if position <= 0:
+                            raise ValueError
+                        brand["position"] = position
+                    except ValueError:
+                        warnings.append(
+                            f"YACSS Brand Position {brand_position_raw!r} is not a positive "
+                            "whole number -- omitted"
+                        )
+                job["brand"] = brand
+
+        competitor_urls = [
+            line.strip()
+            for line in self.inputs["YACSS Competitor URLs (one per line)"].toPlainText().splitlines()
+            if line.strip()
+        ]
+        if competitor_urls:
+            job["competitor_urls"] = competitor_urls
+
+        target_urls = [
+            line.strip()
+            for line in self.inputs["YACSS Target URLs (one per line)"].toPlainText().splitlines()
+            if line.strip()
+        ]
+        if target_urls:
+            job["target_urls"] = target_urls
+
         return job, warnings
 
     def _build_masspage_job(self):
