@@ -22,7 +22,7 @@ from yacss_api import fetch_templates, fetch_cloud_accounts, YacssApiError
 # running instance is identifiable, unlike the old hardcoded "v4" (a
 # leftover UI-redesign label, not a real version, that stopped being
 # updated years before this was added).
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 README_PATH = Path(__file__).resolve().parent / "README.md"
 
@@ -150,9 +150,9 @@ class YAMLForm(QMainWindow):
         "Logo URL", "Contact Email Address", "Primary Business Category",
     ]
     YACSS_BUILD_FIELDS = [
-        "YACSS Build Type", "YACSS Template", "YACSS Bucket Keyword", "YACSS Tier0 Pages",
-        "YACSS Tiers (tier:pages, one per line)", "YACSS AI Platform", "YACSS AI Model",
-        "YACSS Tone", "YACSS Language", "YACSS Items Per Listicle",
+        "YACSS Build Type", "YACSS Template", "YACSS Bucket Keyword", "YACSS Topic Keyword",
+        "YACSS Tier0 Pages", "YACSS Tiers (tier:pages, one per line)", "YACSS AI Platform",
+        "YACSS AI Model", "YACSS Tone", "YACSS Language", "YACSS Items Per Listicle",
         "YACSS Diagram Page Titles (one per line)", "YACSS Diagram Content",
     ]
 
@@ -225,6 +225,18 @@ class YAMLForm(QMainWindow):
             "YACSS Build Type": yacss_build_type,
             "YACSS Template": yacss_template,
             "YACSS Bucket Keyword": QLineEdit(),
+            # Listicle/Masspage only -- their real ListicleJob/MasspageJob.keyword
+            # (see rr_yacss_factory's src/jobs/schema.ts) is the job's own SEO
+            # topic (e.g. "best coffee shops in Austin"), a genuinely different
+            # value than "YACSS Bucket Keyword", which for these two types holds
+            # lsi_keyword instead (the EXISTING Diagram build's keyword whose
+            # bucket this publishes into -- see _update_build_type_ui's doc
+            # comment and rr_yacss_factory's bucketAndDirectoryForJob(), which
+            # derives bucket=slugify(lsi_keyword) / directory=slugify(keyword)
+            # for these two types). Diagram/cloud_stack has no lsi_keyword
+            # field at all, so this input is hidden for that type -- see
+            # _update_build_type_ui.
+            "YACSS Topic Keyword": QLineEdit(),
             "YACSS Tier0 Pages": QLineEdit(),
             "YACSS Tiers (tier:pages, one per line)": QTextEdit(),
             "YACSS AI Platform": QLineEdit(),
@@ -250,6 +262,7 @@ class YAMLForm(QMainWindow):
         self.placeholders = {
             "YACSS Template": "e.g. porto-001",
             "YACSS Bucket Keyword": "themed micro-site name -- becomes the real cloud bucket name",
+            "YACSS Topic Keyword": "e.g. best coffee shops in Austin -- the listicle/masspage subject",
             "YACSS Tier0 Pages": "1",
             "YACSS Tiers (tier:pages, one per line)": "1:5",
             "YACSS AI Platform": "openai",
@@ -576,6 +589,11 @@ class YAMLForm(QMainWindow):
         self.cloud_account_manual_input.setVisible(not is_diagram)
         self.diagram_tier_table_label.setVisible(is_diagram)
         self.diagram_tier_accounts_table.setVisible(is_diagram)
+        # Topic Keyword (job.keyword's real SEO-subject meaning for these two
+        # types -- see the field's own setup comment) has nothing to hold for
+        # Diagram/cloud_stack, which has no separate topic concept.
+        self.labels["YACSS Topic Keyword"].setVisible(not is_diagram)
+        self.inputs["YACSS Topic Keyword"].setVisible(not is_diagram)
 
         bucket_label = self.labels["YACSS Bucket Keyword"]
         bucket_widget = self.inputs["YACSS Bucket Keyword"]
@@ -597,6 +615,8 @@ class YAMLForm(QMainWindow):
 
         if is_diagram:
             self._sync_diagram_tier_table()
+        else:
+            self._update_page_titles_count_label()
 
     @staticmethod
     def _parse_tier_lines(text: str) -> list:
@@ -737,7 +757,16 @@ class YAMLForm(QMainWindow):
         how many titles are needed -- the multiplicative total isn't
         something a user can mentally compute from Tier0 Pages/Tiers
         alone, and previously the only feedback was a warning after
-        clicking Export."""
+        clicking Export. This field is also reused (see its own setup
+        comment) for Masspage's page_titles, which has no multiplicative-
+        total requirement (MasspageJobSchema only requires at least one
+        entry) -- the Tier0/Tiers-derived count would be actively wrong
+        guidance there, so it's skipped entirely outside Diagram."""
+        label = self.labels["YACSS Diagram Page Titles (one per line)"]
+        if self.inputs["YACSS Build Type"].currentText() != "Diagram":
+            label.setText("YACSS Diagram Page Titles (one per line)")
+            label.setStyleSheet("")
+            return
         try:
             tier0_pages = int(self.inputs["YACSS Tier0 Pages"].text().strip() or "0")
         except ValueError:
@@ -754,7 +783,6 @@ class YAMLForm(QMainWindow):
                 if line.strip()
             ]
         )
-        label = self.labels["YACSS Diagram Page Titles (one per line)"]
         if current == expected:
             label.setText(f"YACSS Diagram Page Titles (one per line) -- {current}/{expected} OK")
             label.setStyleSheet("color: green;")
@@ -871,25 +899,159 @@ class YAMLForm(QMainWindow):
 
         return job, warnings
 
+    def _build_listicle_job(self):
+        """Builds a rr_yacss_factory ListicleJob dict (src/jobs/schema.ts's
+        listicleJobSchema) plus advisory warnings, mirroring
+        _build_cloud_stack_job's own pattern. job.keyword is the real SEO
+        topic ("YACSS Topic Keyword"); job.lsi_keyword is the EXISTING
+        Diagram build's own keyword whose bucket this publishes into
+        ("YACSS Bucket Keyword", relabeled for this type -- see
+        _update_build_type_ui and rr_yacss_factory's
+        bucketAndDirectoryForJob()). brand/competitor_urls/target_urls are
+        optional in the real schema and have no field in this form yet, so
+        they're simply omitted rather than sent empty."""
+        warnings = []
+
+        def require(value: str, label: str):
+            if not value.strip():
+                warnings.append(f"{label} is blank")
+
+        client_name = self.inputs["* Client Name"].text()
+        topic_keyword = self.inputs["YACSS Topic Keyword"].text()
+        lsi_keyword = self.inputs["YACSS Bucket Keyword"].text()
+        template = self.inputs["YACSS Template"].currentText()
+        ai_platform = self.inputs["YACSS AI Platform"].text()
+        ai_model = self.inputs["YACSS AI Model"].text()
+        tone = self.inputs["YACSS Tone"].text()
+        language = self.inputs["YACSS Language"].text()
+        items_raw = self.inputs["YACSS Items Per Listicle"].text()
+
+        require(client_name, "* Client Name")
+        require(topic_keyword, "YACSS Topic Keyword")
+        require(lsi_keyword, "YACSS Bucket Keyword (target stack keyword)")
+        require(template, "YACSS Template")
+        require(ai_platform, "YACSS AI Platform")
+        require(ai_model, "YACSS AI Model")
+        require(tone, "YACSS Tone")
+        require(language, "YACSS Language")
+
+        try:
+            items_per_listicle = int(items_raw.strip() or "0")
+        except ValueError:
+            warnings.append(
+                f"YACSS Items Per Listicle {items_raw!r} is not a whole number -- treated as 0"
+            )
+            items_per_listicle = 0
+        if items_per_listicle <= 0:
+            warnings.append("YACSS Items Per Listicle must be a positive whole number")
+
+        cloud_account_ids = [v for v in self._serialize_cloud_account_ids().split(",") if v]
+        if not cloud_account_ids:
+            warnings.append("No YACSS Cloud Account IDs selected")
+
+        job = {
+            "job_id": self._slugify(client_name) or "listicle-job",
+            "type": "listicle",
+            "keyword": topic_keyword,
+            "name": client_name,
+            "template": template,
+            "ai_platform": ai_platform,
+            "ai_model": ai_model,
+            "items_per_listicle": items_per_listicle,
+            "tone": tone,
+            "language": language,
+            "cloud_account_ids": cloud_account_ids,
+            "lsi_keyword": lsi_keyword,
+        }
+        return job, warnings
+
+    def _build_masspage_job(self):
+        """Builds a rr_yacss_factory MasspageJob dict (src/jobs/schema.ts's
+        masspageJobSchema) plus advisory warnings -- see
+        _build_listicle_job's doc comment for the keyword/lsi_keyword
+        split, which applies identically here. page_titles/content reuse
+        the same "YACSS Diagram Page Titles"/"YACSS Diagram Content"
+        fields Diagram uses (their own setup comment already anticipated
+        this); unlike Diagram's page_titles, masspageJobSchema has no
+        multiplicative-total requirement, just at least one entry."""
+        warnings = []
+
+        def require(value: str, label: str):
+            if not value.strip():
+                warnings.append(f"{label} is blank")
+
+        client_name = self.inputs["* Client Name"].text()
+        topic_keyword = self.inputs["YACSS Topic Keyword"].text()
+        lsi_keyword = self.inputs["YACSS Bucket Keyword"].text()
+        template = self.inputs["YACSS Template"].currentText()
+        landing_url = self.inputs["* Website"].text()
+        ai_platform = self.inputs["YACSS AI Platform"].text()
+
+        require(client_name, "* Client Name")
+        require(topic_keyword, "YACSS Topic Keyword")
+        require(lsi_keyword, "YACSS Bucket Keyword (target stack keyword)")
+        require(template, "YACSS Template")
+        require(landing_url, "* Website")
+        require(ai_platform, "YACSS AI Platform")
+
+        page_titles = [
+            line.strip()
+            for line in self.inputs["YACSS Diagram Page Titles (one per line)"]
+            .toPlainText()
+            .splitlines()
+            if line.strip()
+        ]
+        if not page_titles:
+            warnings.append("YACSS Diagram Page Titles (one per line) is blank")
+
+        content = self.inputs["YACSS Diagram Content"].toPlainText().strip()
+        if not content:
+            warnings.append("YACSS Diagram Content is blank")
+
+        cloud_account_ids = [v for v in self._serialize_cloud_account_ids().split(",") if v]
+        if not cloud_account_ids:
+            warnings.append("No YACSS Cloud Account IDs selected")
+
+        job = {
+            "job_id": self._slugify(client_name) or "masspage-job",
+            "type": "masspage",
+            "keyword": topic_keyword,
+            "name": client_name,
+            "template": template,
+            "landing_url": landing_url,
+            "page_titles": page_titles,
+            "content": content,
+            "ai_platform": ai_platform,
+            "cloud_account_ids": cloud_account_ids,
+            "lsi_keyword": lsi_keyword,
+        }
+        return job, warnings
+
     def export_job_json(self):
         """Writes a rr_yacss_factory job file (a JSON array containing one
-        CloudStackJob) for the Diagram build type -- Listicle/
-        Masspage_Silo_Local aren't supported yet (see this button's own
-        setup comment for what's missing). The two projects stay loosely
-        coupled: this never calls the live YACSS API or duplicates
-        rr_yacss_factory's own template/cloud-account name resolution --
-        it writes the same human-friendly job-file shape `factory run`
-        already resolves itself."""
-        if self.inputs["YACSS Build Type"].currentText() != "Diagram":
+        job dict, shaped for whichever YACSS Build Type is currently
+        selected -- CloudStackJob/ListicleJob/MasspageJob). The two
+        projects stay loosely coupled: this never calls the live YACSS API
+        or duplicates rr_yacss_factory's own template/cloud-account name
+        resolution -- it writes the same human-friendly job-file shape
+        `factory run` already resolves itself."""
+        build_type = self.inputs["YACSS Build Type"].currentText()
+        job_builders = {
+            "Diagram": self._build_cloud_stack_job,
+            "Listicle": self._build_listicle_job,
+            "Masspage_Silo_Local": self._build_masspage_job,
+        }
+        build_job = job_builders.get(build_type)
+        if build_job is None:
             QMessageBox.warning(
                 self,
-                "Not Supported Yet",
-                "Job JSON export is only implemented for YACSS Build Type "
-                "'Diagram' so far.",
+                "Select a Build Type",
+                "Choose a YACSS Build Type (Diagram, Listicle, or "
+                "Masspage_Silo_Local) before exporting.",
             )
             return
 
-        job, warnings = self._build_cloud_stack_job()
+        job, warnings = build_job()
         if warnings:
             reply = QMessageBox.question(
                 self,

@@ -67,6 +67,20 @@ def test_bucket_keyword_label_changes_by_build_type(qapp):
     assert "EXISTING" in label.text()
 
 
+def test_topic_keyword_hidden_for_diagram_shown_for_listicle_and_masspage(qapp):
+    form = YAMLForm()
+    form.main_tabs.setCurrentWidget(form.inputs["YACSS Topic Keyword"].parentWidget())
+
+    form.inputs["YACSS Build Type"].setCurrentText("Diagram")
+    assert form.inputs["YACSS Topic Keyword"].isVisibleTo(form) is False
+
+    form.inputs["YACSS Build Type"].setCurrentText("Listicle")
+    assert form.inputs["YACSS Topic Keyword"].isVisibleTo(form) is True
+
+    form.inputs["YACSS Build Type"].setCurrentText("Masspage_Silo_Local")
+    assert form.inputs["YACSS Topic Keyword"].isVisibleTo(form) is True
+
+
 def test_sync_diagram_tier_table_builds_one_row_per_tier(qapp):
     form = YAMLForm()
     form.inputs["YACSS Build Type"].setCurrentText("Diagram")

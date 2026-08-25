@@ -3,6 +3,30 @@
 All notable changes to this project are documented in this file. Format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.0] - 2026-08-24
+
+### Added
+
+- **Export Job JSON for Listicle and Masspage_Silo_Local.** Previously
+  Diagram-only; `_build_listicle_job()`/`_build_masspage_job()` now
+  build real rr_yacss_factory `ListicleJob`/`MasspageJob` dicts, both
+  schema-validated against `parseJob()` in a live check. Adds one new
+  field, `YACSS Topic Keyword` (hidden for Diagram, shown otherwise) --
+  it holds the job's real SEO subject (`job.keyword`, e.g. "best coffee
+  shops in Austin"), which is a genuinely different value from `YACSS
+  Bucket Keyword`. For these two types that field is relabeled "YACSS
+  Target Stack Keyword" and now maps to `job.lsi_keyword` instead --
+  confirmed against rr_yacss_factory's own `bucketAndDirectoryForJob()`
+  (`bucket = slugify(lsi_keyword)`, `directory = slugify(keyword)`),
+  correcting an earlier assumption that it mapped to `job.keyword`
+  directly the way it does for Diagram/cloud_stack. Masspage reuses the
+  existing `YACSS Diagram Page Titles`/`YACSS Diagram Content` fields
+  (their own setup comment already anticipated this); unlike Diagram,
+  masspage's page_titles has no multiplicative-total requirement, so
+  the live page-titles counter now only applies to Diagram and shows a
+  neutral label otherwise. `brand`/`competitor_urls`/`target_urls`
+  (optional on ListicleJob) have no form field yet and are omitted.
+
 ## [0.2.0] - 2026-08-24
 
 ### Added

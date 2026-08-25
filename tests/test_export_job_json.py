@@ -23,6 +23,9 @@ def _fill_required_fields(form):
 def test_page_titles_count_label_updates_live_as_tiers_change(qapp):
     form = YAMLForm()
     label = form.labels["YACSS Diagram Page Titles (one per line)"]
+    # The multiplicative counter only applies to Diagram -- see
+    # _update_page_titles_count_label's own doc comment.
+    form.inputs["YACSS Build Type"].setCurrentText("Diagram")
 
     form.inputs["YACSS Tier0 Pages"].setText("1")
     form.inputs["YACSS Tiers (tier:pages, one per line)"].setPlainText("1:3")
@@ -42,6 +45,7 @@ def test_page_titles_count_label_updates_live_as_tiers_change(qapp):
 def test_page_titles_count_label_handles_non_numeric_tier0_pages(qapp):
     form = YAMLForm()
     label = form.labels["YACSS Diagram Page Titles (one per line)"]
+    form.inputs["YACSS Build Type"].setCurrentText("Diagram")
 
     form.inputs["YACSS Tier0 Pages"].setText("not a number")
     form.inputs["YACSS Diagram Page Titles (one per line)"].setPlainText("Home")
@@ -156,9 +160,9 @@ def test_build_cloud_stack_job_warns_on_tier_with_no_accounts(qapp):
     assert any("Tier 1 has no Cloud Account IDs" in w for w in warnings)
 
 
-def test_export_job_json_refuses_non_diagram_build_types(qapp, monkeypatch, tmp_path):
+def test_export_job_json_refuses_blank_build_type(qapp, monkeypatch, tmp_path):
     form = YAMLForm()
-    form.inputs["YACSS Build Type"].setCurrentText("Listicle")
+    # Build type left at its default blank entry.
     save_dialog_called = []
     monkeypatch.setattr(
         QFileDialog,
@@ -169,6 +173,144 @@ def test_export_job_json_refuses_non_diagram_build_types(qapp, monkeypatch, tmp_
     form.export_job_json()
 
     assert save_dialog_called == []
+
+
+def _fill_listicle_masspage_shared_fields(form):
+    form.inputs["* Client Name"].setText("Acme Plumbing")
+    form.inputs["* Website"].setText("https://acmeplumbing.example")
+    form.inputs["YACSS Template"].setCurrentText("porto-001")
+    form.inputs["YACSS Bucket Keyword"].setText("acme-plumbing-diagram-stack")
+    form.inputs["YACSS Topic Keyword"].setText("emergency plumber Dallas")
+    form.inputs["YACSS AI Platform"].setText("openai")
+    form.cloud_account_manual_input.setText("28205")
+
+
+def test_build_listicle_job_happy_path_no_warnings(qapp):
+    form = YAMLForm()
+    form.inputs["YACSS Build Type"].setCurrentText("Listicle")
+    _fill_listicle_masspage_shared_fields(form)
+    form.inputs["YACSS AI Model"].setText("gpt-5-mini")
+    form.inputs["YACSS Tone"].setText("friendly")
+    form.inputs["YACSS Language"].setText("en")
+    form.inputs["YACSS Items Per Listicle"].setText("6")
+
+    job, warnings = form._build_listicle_job()
+
+    assert warnings == []
+    assert job == {
+        "job_id": "acme-plumbing",
+        "type": "listicle",
+        "keyword": "emergency plumber Dallas",
+        "name": "Acme Plumbing",
+        "template": "porto-001",
+        "ai_platform": "openai",
+        "ai_model": "gpt-5-mini",
+        "items_per_listicle": 6,
+        "tone": "friendly",
+        "language": "en",
+        "cloud_account_ids": ["28205"],
+        "lsi_keyword": "acme-plumbing-diagram-stack",
+    }
+
+
+def test_build_listicle_job_warns_on_blank_required_fields(qapp):
+    form = YAMLForm()
+    form.inputs["YACSS Build Type"].setCurrentText("Listicle")
+    # Everything left blank.
+
+    job, warnings = form._build_listicle_job()
+
+    assert any("* Client Name" in w for w in warnings)
+    assert any("YACSS Topic Keyword" in w for w in warnings)
+    assert any("target stack keyword" in w for w in warnings)
+    assert any("YACSS Items Per Listicle must be a positive" in w for w in warnings)
+    assert any("No YACSS Cloud Account IDs selected" in w for w in warnings)
+    assert job["job_id"] == "listicle-job"
+
+
+def test_build_masspage_job_happy_path_no_warnings(qapp):
+    form = YAMLForm()
+    form.inputs["YACSS Build Type"].setCurrentText("Masspage_Silo_Local")
+    _fill_listicle_masspage_shared_fields(form)
+    form.inputs["YACSS Diagram Page Titles (one per line)"].setPlainText(
+        "Emergency Plumbing Repair\nDrain Cleaning"
+    )
+    form.inputs["YACSS Diagram Content"].setPlainText("Acme Plumbing serves greater Dallas.")
+
+    job, warnings = form._build_masspage_job()
+
+    assert warnings == []
+    assert job == {
+        "job_id": "acme-plumbing",
+        "type": "masspage",
+        "keyword": "emergency plumber Dallas",
+        "name": "Acme Plumbing",
+        "template": "porto-001",
+        "landing_url": "https://acmeplumbing.example",
+        "page_titles": ["Emergency Plumbing Repair", "Drain Cleaning"],
+        "content": "Acme Plumbing serves greater Dallas.",
+        "ai_platform": "openai",
+        "cloud_account_ids": ["28205"],
+        "lsi_keyword": "acme-plumbing-diagram-stack",
+    }
+
+
+def test_build_masspage_job_warns_on_blank_required_fields(qapp):
+    form = YAMLForm()
+    form.inputs["YACSS Build Type"].setCurrentText("Masspage_Silo_Local")
+    # Everything left blank.
+
+    job, warnings = form._build_masspage_job()
+
+    assert any("* Client Name" in w for w in warnings)
+    assert any("YACSS Topic Keyword" in w for w in warnings)
+    assert any("target stack keyword" in w for w in warnings)
+    assert any("Page Titles" in w and "blank" in w for w in warnings)
+    assert any("YACSS Diagram Content is blank" in w for w in warnings)
+    assert any("No YACSS Cloud Account IDs selected" in w for w in warnings)
+    assert job["job_id"] == "masspage-job"
+
+
+def test_export_job_json_writes_listicle_job(qapp, tmp_path, monkeypatch):
+    form = YAMLForm()
+    form.inputs["YACSS Build Type"].setCurrentText("Listicle")
+    _fill_listicle_masspage_shared_fields(form)
+    form.inputs["YACSS AI Model"].setText("gpt-5-mini")
+    form.inputs["YACSS Tone"].setText("friendly")
+    form.inputs["YACSS Language"].setText("en")
+    form.inputs["YACSS Items Per Listicle"].setText("6")
+
+    out_file = tmp_path / "listicle-export.json"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(out_file), ""))
+
+    form.export_job_json()
+
+    with open(out_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    assert isinstance(data, list)
+    assert len(data) == 1
+    assert data[0]["type"] == "listicle"
+    assert data[0]["job_id"] == "acme-plumbing"
+
+
+def test_export_job_json_writes_masspage_job(qapp, tmp_path, monkeypatch):
+    form = YAMLForm()
+    form.inputs["YACSS Build Type"].setCurrentText("Masspage_Silo_Local")
+    _fill_listicle_masspage_shared_fields(form)
+    form.inputs["YACSS Diagram Page Titles (one per line)"].setPlainText("Emergency Plumbing Repair")
+    form.inputs["YACSS Diagram Content"].setPlainText("Acme Plumbing serves greater Dallas.")
+
+    out_file = tmp_path / "masspage-export.json"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(out_file), ""))
+
+    form.export_job_json()
+
+    with open(out_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    assert isinstance(data, list)
+    assert len(data) == 1
+    assert data[0]["type"] == "masspage"
+    assert data[0]["job_id"] == "acme-plumbing"
 
 
 def test_export_job_json_writes_valid_json_when_warnings_accepted(qapp, tmp_path, monkeypatch):
