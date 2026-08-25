@@ -22,7 +22,7 @@ from yacss_api import fetch_templates, fetch_cloud_accounts, YacssApiError
 # running instance is identifiable, unlike the old hardcoded "v4" (a
 # leftover UI-redesign label, not a real version, that stopped being
 # updated years before this was added).
-__version__ = "0.3.2"
+__version__ = "0.3.3"
 
 README_PATH = Path(__file__).resolve().parent / "README.md"
 
@@ -1002,7 +1002,15 @@ class YAMLForm(QMainWindow):
             warnings.append("No YACSS Cloud Account IDs selected")
 
         job = {
-            "job_id": self._slugify(client_name) or "listicle-job",
+            # "-listicle" suffix: without it this collides with the same
+            # client's cloud_stack job_id (both slugify from the same
+            # client name) -- rr_yacss_factory's manifest is keyed by
+            # job_id, so a real Listicle export once silently inherited a
+            # prior Diagram build's stale cloud_urls under the same key.
+            # cloud_stack itself keeps its bare slug unchanged (see its own
+            # job_id line) since real published builds already exist under
+            # that exact job_id and renaming it would orphan them.
+            "job_id": f"{self._slugify(client_name)}-listicle" if client_name.strip() else "listicle-job",
             "type": "listicle",
             "keyword": topic_keyword,
             "name": client_name,
@@ -1105,7 +1113,10 @@ class YAMLForm(QMainWindow):
             warnings.append("No YACSS Cloud Account IDs selected")
 
         job = {
-            "job_id": self._slugify(client_name) or "masspage-job",
+            # "-masspage" suffix: see _build_listicle_job's own doc comment
+            # for why -- same collision risk against the client's
+            # cloud_stack job_id.
+            "job_id": f"{self._slugify(client_name)}-masspage" if client_name.strip() else "masspage-job",
             "type": "masspage",
             "keyword": topic_keyword,
             "name": client_name,

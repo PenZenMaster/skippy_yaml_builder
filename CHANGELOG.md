@@ -3,6 +3,23 @@
 All notable changes to this project are documented in this file. Format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.3] - 2026-08-24
+
+### Fixed
+
+- **Listicle/Masspage job_id collision with the same client's Diagram
+  build.** All three build types slugified the client name into
+  job_id the same way, so a client with both a Diagram (cloud_stack)
+  build and a Listicle/Masspage build got the SAME job_id --
+  rr_yacss_factory's manifest is keyed by job_id, so a real Listicle
+  publish attempt for Overhead Door Company of Joliet inherited its
+  earlier Diagram build's stale `cloud_urls` under that shared key,
+  surfacing as a confusing failed-then-recovered publish. Listicle and
+  Masspage job_ids now get a `-listicle`/`-masspage` suffix; cloud_stack
+  keeps its original bare slug unchanged, since real published builds
+  already exist under that exact job_id and renaming it would orphan
+  them.
+
 ## [0.3.2] - 2026-08-24
 
 ### Changed

@@ -198,7 +198,7 @@ def test_build_listicle_job_happy_path_no_warnings(qapp):
 
     assert warnings == []
     assert job == {
-        "job_id": "acme-plumbing",
+        "job_id": "acme-plumbing-listicle",
         "type": "listicle",
         "keyword": "emergency plumber Dallas",
         "name": "Acme Plumbing",
@@ -339,7 +339,7 @@ def test_build_masspage_job_happy_path_no_warnings(qapp):
 
     assert warnings == []
     assert job == {
-        "job_id": "acme-plumbing",
+        "job_id": "acme-plumbing-masspage",
         "type": "masspage",
         "keyword": "emergency plumber Dallas",
         "name": "Acme Plumbing",
@@ -388,7 +388,7 @@ def test_export_job_json_writes_listicle_job(qapp, tmp_path, monkeypatch):
     assert isinstance(data, list)
     assert len(data) == 1
     assert data[0]["type"] == "listicle"
-    assert data[0]["job_id"] == "acme-plumbing"
+    assert data[0]["job_id"] == "acme-plumbing-listicle"
 
 
 def test_export_job_json_writes_masspage_job(qapp, tmp_path, monkeypatch):
@@ -408,7 +408,7 @@ def test_export_job_json_writes_masspage_job(qapp, tmp_path, monkeypatch):
     assert isinstance(data, list)
     assert len(data) == 1
     assert data[0]["type"] == "masspage"
-    assert data[0]["job_id"] == "acme-plumbing"
+    assert data[0]["job_id"] == "acme-plumbing-masspage"
 
 
 def test_export_job_json_defaults_save_dialog_to_rr_yacss_factory_jobs_dir(qapp, monkeypatch):
