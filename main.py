@@ -15,14 +15,20 @@ import sys
 import yaml
 from city_embed_dialog import CityEmbedDialog
 from theme import ThemeManager
-from yacss_api import fetch_templates, fetch_cloud_accounts, YacssApiError
+from yacss_api import (
+    fetch_templates,
+    fetch_cloud_accounts,
+    fetch_ai_providers,
+    fetch_ai_models,
+    YacssApiError,
+)
 
 # Bumped by hand alongside CHANGELOG.md -- see that file for what changed
 # at each version. Shown in the window title and the About dialog so a
 # running instance is identifiable, unlike the old hardcoded "v4" (a
 # leftover UI-redesign label, not a real version, that stopped being
 # updated years before this was added).
-__version__ = "0.3.3"
+__version__ = "0.3.4"
 
 README_PATH = Path(__file__).resolve().parent / "README.md"
 
@@ -135,6 +141,71 @@ class _FaqTableWidget(QTableWidget):
             self.editItem(self.item(next_row, 0))
 
 
+class _CloudAccountPickerDialog(QDialog):
+    """A checkable-list picker for one Diagram tier's cloud accounts,
+    opened from that tier row's "Select..." button in
+    diagram_tier_accounts_table. Exists because raw numeric Cloud Account
+    IDs aren't exposed anywhere in the YACSS dashboard UI -- a user without
+    rr_yacss_factory's own `factory list-cloud-accounts` open in another
+    window has no way to know what id "28205" even refers to. Shows the
+    same "id -- provider -- name (client: ...)" label
+    _populate_cloud_account_list already uses for the flat (non-Diagram)
+    checklist, so the two pickers read consistently; the underlying
+    tier-table cell still stores plain comma-separated ids, so nothing
+    downstream (save_yaml, export_job_json, rr_yacss_factory itself) needs
+    to change to consume this."""
+
+    def __init__(self, accounts: list, selected_ids: list, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Select Cloud Accounts for This Tier")
+        self.setMinimumWidth(500)
+
+        layout = QVBoxLayout()
+        if not accounts:
+            layout.addWidget(
+                QLabel(
+                    "No live cloud account data available (no token, offline, "
+                    "or the API call failed at startup). Close this dialog and "
+                    "type account IDs directly into the tier's text field instead."
+                )
+            )
+        self.list_widget = QListWidget()
+        self.list_widget.setFixedHeight(220)
+        selected = set(selected_ids)
+        for account in accounts:
+            label_parts = [account["id"], account.get("provider", ""), account.get("name", "")]
+            if account.get("client"):
+                label_parts.append(f"(client: {account['client']})")
+            item = QListWidgetItem(" -- ".join(part for part in label_parts if part))
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(
+                Qt.CheckState.Checked if account["id"] in selected else Qt.CheckState.Unchecked
+            )
+            item.setData(Qt.ItemDataRole.UserRole, account["id"])
+            self.list_widget.addItem(item)
+        layout.addWidget(self.list_widget)
+
+        button_row = QHBoxLayout()
+        ok_button = QPushButton("OK")
+        cancel_button = QPushButton("Cancel")
+        ok_button.clicked.connect(self.accept)
+        cancel_button.clicked.connect(self.reject)
+        button_row.addStretch()
+        button_row.addWidget(ok_button)
+        button_row.addWidget(cancel_button)
+        layout.addLayout(button_row)
+
+        self.setLayout(layout)
+
+    def selected_ids(self) -> list:
+        ids = []
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            if item.checkState() == Qt.CheckState.Checked:
+                ids.append(item.data(Qt.ItemDataRole.UserRole))
+        return ids
+
+
 class YAMLForm(QMainWindow):
     # Fields whose QTextEdit holds one entry per line; saved as a real YAML
     # list rather than the raw multi-line string. Loading still accepts the
@@ -174,6 +245,19 @@ class YAMLForm(QMainWindow):
         "YACSS Diagram Page Titles (one per line)", "YACSS Diagram Content",
     ]
 
+    # The only real enum this project has ever confirmed for "tone":
+    # rr_yacss_factory's src/engine/batch-runner.ts documents these exact
+    # values from a live GET /build-fields?type=listicle capture of that
+    # field's real select options. Not independently confirmed for
+    # Diagram/Masspage tone fields, but used as the one dropdown option set
+    # regardless of build type since it's the only real data available --
+    # the combo stays editable so an unconfirmed/future value can still be
+    # typed and preserved.
+    TONE_OPTIONS = [
+        "", "Conversational", "ProfessionalWarm", "Authoritative", "Empathetic",
+        "Witty", "Inspirational", "Persuasive", "Relatable", "Educational", "Urgent",
+    ]
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"Skippy Cloud Stack – YAML Builder v{__version__}")
@@ -182,6 +266,16 @@ class YAMLForm(QMainWindow):
         self.dark_mode = False
         self.labels = {}
         self.city_data = {}
+        # Raw live-fetched data cached for reuse beyond the widgets they
+        # first populate: self._cloud_accounts backs both the flat
+        # checklist (_populate_cloud_account_list) and each Diagram tier's
+        # _CloudAccountPickerDialog; self._ai_models backs YACSS AI Model,
+        # re-filtered by provider whenever YACSS AI Platform changes (see
+        # _populate_ai_model_combo). Empty by default so a signal firing
+        # before _populate_live_dropdowns runs (or a fetch failure) doesn't
+        # crash on a missing attribute.
+        self._cloud_accounts = []
+        self._ai_models = []
 
         central_widget = QWidget()
         # Explicit colors on every input widget: without this, QTextEdit
@@ -203,6 +297,26 @@ class YAMLForm(QMainWindow):
         # on save/load -- see load_yaml's QComboBox branch.
         yacss_template = QComboBox()
         yacss_template.setEditable(True)
+
+        # Editable, same as yacss_template above and for the same reason:
+        # populated live on startup (YACSS AI Platform from GET
+        # /ai-providers, YACSS AI Model from GET /ai-models filtered to
+        # whichever platform is currently selected -- see
+        # _populate_ai_platform_combo/_populate_ai_model_combo), but a
+        # value entered while the API is unreachable, or one not in the
+        # live list for some other reason, must still be typeable and
+        # preserved on save/load.
+        yacss_ai_platform = QComboBox()
+        yacss_ai_platform.setEditable(True)
+        yacss_ai_model = QComboBox()
+        yacss_ai_model.setEditable(True)
+        # Not live-fetched (no YACSS endpoint exposes tone options) --
+        # pre-populated from TONE_OPTIONS, the one real enum this project
+        # has confirmed (see that constant's own comment). Still editable
+        # so an untested value isn't blocked.
+        yacss_tone = QComboBox()
+        yacss_tone.setEditable(True)
+        yacss_tone.addItems(self.TONE_OPTIONS)
 
         self.inputs = {
             "* Client Name": QLineEdit(),
@@ -257,9 +371,9 @@ class YAMLForm(QMainWindow):
             "YACSS Topic Keyword": QLineEdit(),
             "YACSS Tier0 Pages": QLineEdit(),
             "YACSS Tiers (tier:pages, one per line)": QTextEdit(),
-            "YACSS AI Platform": QLineEdit(),
-            "YACSS AI Model": QLineEdit(),
-            "YACSS Tone": QLineEdit(),
+            "YACSS AI Platform": yacss_ai_platform,
+            "YACSS AI Model": yacss_ai_model,
+            "YACSS Tone": yacss_tone,
             "YACSS Language": QLineEdit(),
             "YACSS Items Per Listicle": QLineEdit(),
             # Listicle-only, all optional in the real ListicleJob schema
@@ -360,9 +474,19 @@ class YAMLForm(QMainWindow):
         self.diagram_tier_table_label = QLabel(
             "YACSS Diagram Cloud Account IDs Per Tier (synced to YACSS Tiers above):"
         )
-        self.diagram_tier_accounts_table = QTableWidget(0, 2)
+        # Third column ("Pick Accounts") is a friendlier alternative to
+        # typing raw numeric ids into column 1 directly -- those ids are
+        # never shown anywhere in the YACSS dashboard UI, only via this
+        # project's own live GET /cloud-accounts lookup, so a user without
+        # rr_yacss_factory's `factory list-cloud-accounts` open in another
+        # window has no way to know what "28205" refers to. The picker
+        # (_open_cloud_account_picker/_CloudAccountPickerDialog) writes its
+        # result as plain comma-separated ids back into column 1, so column
+        # 1 itself is untouched and still directly editable/typeable as a
+        # fallback -- nothing downstream needs to change to consume it.
+        self.diagram_tier_accounts_table = QTableWidget(0, 3)
         self.diagram_tier_accounts_table.setHorizontalHeaderLabels(
-            ["Tier", "Cloud Account IDs (comma separated)"]
+            ["Tier", "Cloud Account IDs (comma separated)", "Pick Accounts"]
         )
         self.diagram_tier_accounts_table.horizontalHeader().setStretchLastSection(True)
         self.diagram_tier_accounts_table.setFont(QFont("Arial", self.font_size))
@@ -440,6 +564,7 @@ class YAMLForm(QMainWindow):
         self.setCentralWidget(scroll_area)
 
         yacss_build_type.currentTextChanged.connect(self._update_build_type_ui)
+        yacss_ai_platform.currentTextChanged.connect(self._populate_ai_model_combo)
         self.inputs["YACSS Tiers (tier:pages, one per line)"].textChanged.connect(
             self._sync_diagram_tier_table
         )
@@ -530,28 +655,44 @@ class YAMLForm(QMainWindow):
         self.main_tabs.addTab(yacss_tab, "YACSS Build")
 
     def _populate_live_dropdowns(self):
-        """Fetches templates/cloud accounts from the live YACSS API to
-        populate the Template combo and Cloud Account checklist. Failure
-        (no token, offline, API error) is non-fatal by design -- both
-        widgets are simply left empty and the form stays fully usable via
-        the Template combo's own editability and the cloud-account manual
-        fallback field. A single combined warning covers both calls so an
-        expected failure mode (e.g. no network) doesn't produce two popups."""
+        """Fetches templates/cloud accounts/AI providers/AI models from the
+        live YACSS API to populate the Template combo, Cloud Account
+        checklist (plus each Diagram tier's picker dialog), and the AI
+        Platform/AI Model combos. Failure (no token, offline, API error) is
+        non-fatal by design, per field -- each affected widget is simply
+        left empty/unfiltered and the form stays fully usable via manual
+        entry (every combo here is editable). A single combined warning
+        covers all four calls so an expected failure mode (e.g. no
+        network) doesn't produce four popups."""
         errors = []
         try:
             self._populate_template_combo(fetch_templates())
         except YacssApiError as exc:
             errors.append(str(exc))
         try:
-            self._populate_cloud_account_list(fetch_cloud_accounts())
+            self._cloud_accounts = fetch_cloud_accounts()
+            self._populate_cloud_account_list(self._cloud_accounts)
         except YacssApiError as exc:
             errors.append(str(exc))
+        try:
+            self._populate_ai_platform_combo(fetch_ai_providers())
+        except YacssApiError as exc:
+            errors.append(str(exc))
+        try:
+            self._ai_models = fetch_ai_models()
+        except YacssApiError as exc:
+            errors.append(str(exc))
+        # Always runs, even if the fetch above failed (self._ai_models
+        # stays [] in that case) -- keeps whatever the user already typed/
+        # selected rather than leaving the combo in whatever state it had
+        # before this method ran.
+        self._populate_ai_model_combo()
         if errors:
             QMessageBox.warning(
                 self,
                 "YACSS live lookup unavailable",
-                "Could not load live YACSS Template/Cloud Account data -- "
-                "both fields still work manually.\n\n" + "\n".join(errors),
+                "Could not load some live YACSS data -- affected fields "
+                "still work manually.\n\n" + "\n".join(errors),
             )
 
     def _populate_template_combo(self, templates: list):
@@ -563,6 +704,69 @@ class YAMLForm(QMainWindow):
             combo.setItemData(
                 combo.count() - 1, template["name"], Qt.ItemDataRole.ToolTipRole
             )
+
+    def _populate_ai_platform_combo(self, providers: list):
+        """Populates YACSS AI Platform from GET /ai-providers, configured
+        providers first (usable on this account without further setup),
+        then the rest -- shown, not hidden, since a provider unconfigured
+        on THIS account may still be valid to select for a different
+        account/build, or get configured later. Each item's tooltip states
+        whether it's configured, since selecting an unconfigured one fails
+        generation with a real 401 (confirmed live, see rr_yacss_factory's
+        docs/projectStatus.md session-5 notes) with no other warning
+        anywhere in this form."""
+        combo = self.inputs["YACSS AI Platform"]
+        current = combo.currentText()
+        combo.clear()
+        combo.addItem("")
+        for provider in sorted(providers, key=lambda p: not p.get("configured", False)):
+            combo.addItem(provider["provider"])
+            tooltip = (
+                "Configured on this account"
+                if provider.get("configured")
+                else "NOT configured on this account -- generation will fail with this provider"
+            )
+            combo.setItemData(combo.count() - 1, tooltip, Qt.ItemDataRole.ToolTipRole)
+        if current:
+            idx = combo.findText(current, Qt.MatchFlag.MatchFixedString)
+            if idx >= 0:
+                combo.setCurrentIndex(idx)
+            else:
+                combo.setEditText(current)
+
+    def _populate_ai_model_combo(self, platform: str = None):
+        """Populates YACSS AI Model from self._ai_models, filtered to
+        whichever provider is currently in YACSS AI Platform (or the
+        `platform` arg, when called directly as that combo's
+        currentTextChanged slot -- Qt passes the new text positionally).
+        GET /ai-models is keyed by provider server-side (confirmed live,
+        see rr_yacss_factory's src/api/client.ts), so without this filter
+        the combo would mix every provider's models together with no way
+        to tell which platform each one actually belongs to. Re-run
+        whenever the platform changes; whatever was already typed/selected
+        is preserved as an exact match if still offered, or as free text
+        otherwise, same fallback _populate_ai_platform_combo/
+        _populate_template_combo use."""
+        combo = self.inputs["YACSS AI Model"]
+        current = combo.currentText()
+        platform = (platform if platform is not None else self.inputs["YACSS AI Platform"].currentText()).strip()
+        combo.clear()
+        combo.addItem("")
+        for model in self._ai_models:
+            if platform and model.get("provider") != platform:
+                continue
+            combo.addItem(model["id"])
+            combo.setItemData(
+                combo.count() - 1,
+                f"{model.get('name', model['id'])} ({model.get('provider', '')})",
+                Qt.ItemDataRole.ToolTipRole,
+            )
+        if current:
+            idx = combo.findText(current, Qt.MatchFlag.MatchFixedString)
+            if idx >= 0:
+                combo.setCurrentIndex(idx)
+            else:
+                combo.setEditText(current)
 
     def _populate_cloud_account_list(self, accounts: list):
         self.cloud_account_list.clear()
@@ -719,7 +923,30 @@ class YAMLForm(QMainWindow):
             self.diagram_tier_accounts_table.setItem(
                 row, 1, QTableWidgetItem(existing.get(tier_num, ""))
             )
+            pick_button = QPushButton("Select...")
+            pick_button.setFont(QFont("Arial", self.font_size))
+            # Default args bind `row` at connect time, not call time --
+            # without them every button would close over the same final
+            # loop variable and all open the last row's picker.
+            pick_button.clicked.connect(
+                lambda checked=False, r=row: self._open_cloud_account_picker(r)
+            )
+            self.diagram_tier_accounts_table.setCellWidget(row, 2, pick_button)
         self._update_page_titles_count_label()
+
+    def _open_cloud_account_picker(self, row: int):
+        """Opens _CloudAccountPickerDialog for one tier row, seeded with
+        whatever ids are already in that row's column-1 text, and writes
+        the dialog's result back into that same cell as plain
+        comma-separated ids on OK. A Cancel (or closing the dialog) leaves
+        the row untouched."""
+        ids_item = self.diagram_tier_accounts_table.item(row, 1)
+        current_ids = [v.strip() for v in (ids_item.text() if ids_item else "").split(",") if v.strip()]
+        dialog = _CloudAccountPickerDialog(self._cloud_accounts, current_ids, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.diagram_tier_accounts_table.setItem(
+                row, 1, QTableWidgetItem(",".join(dialog.selected_ids()))
+            )
 
     def _serialize_diagram_tier_accounts(self) -> list:
         rows = []
@@ -778,9 +1005,20 @@ class YAMLForm(QMainWindow):
     @staticmethod
     def _compute_cloud_stack_total_pages(tier0_pages: int, tier_pages) -> int:
         """Exact port of rr_yacss_factory's computeCloudStackTotalPages()
-        (src/jobs/schema.ts) -- tiers multiply, not add. tier_pages is an
-        iterable of each tier's own page count, in tier order."""
-        running_product = 1
+        (src/jobs/schema.ts v1.11) -- tiers multiply, not add, and
+        tier0_pages is the multiplicative root of the whole pyramid, not
+        just an additive starting point. tier_pages is an iterable of each
+        tier's own page count, in tier order.
+
+        Corrected 2026-08-26: originally seeded running_product at 1
+        instead of tier0_pages, only ever confirmed live against a
+        tier0_pages=1 example where that bug is invisible (multiplying by
+        1 vs. not multiplying by it at all give the same result). A real
+        tier0_pages=3 Salvo Metal Works build (id 127455) confirmed live
+        that YACSS's real per-tier totals include tier0_pages in the
+        running product -- see rr_yacss_factory's schema.ts for the full
+        trail."""
+        running_product = tier0_pages
         total = tier0_pages
         for pages in tier_pages:
             running_product *= pages
@@ -972,9 +1210,9 @@ class YAMLForm(QMainWindow):
         topic_keyword = self.inputs["YACSS Topic Keyword"].text()
         lsi_keyword = self.inputs["YACSS Bucket Keyword"].text()
         template = self.inputs["YACSS Template"].currentText()
-        ai_platform = self.inputs["YACSS AI Platform"].text()
-        ai_model = self.inputs["YACSS AI Model"].text()
-        tone = self.inputs["YACSS Tone"].text()
+        ai_platform = self.inputs["YACSS AI Platform"].currentText()
+        ai_model = self.inputs["YACSS AI Model"].currentText()
+        tone = self.inputs["YACSS Tone"].currentText()
         language = self.inputs["YACSS Language"].text()
         items_raw = self.inputs["YACSS Items Per Listicle"].text()
 
@@ -1085,7 +1323,7 @@ class YAMLForm(QMainWindow):
         lsi_keyword = self.inputs["YACSS Bucket Keyword"].text()
         template = self.inputs["YACSS Template"].currentText()
         landing_url = self.inputs["* Website"].text()
-        ai_platform = self.inputs["YACSS AI Platform"].text()
+        ai_platform = self.inputs["YACSS AI Platform"].currentText()
 
         require(client_name, "* Client Name")
         require(topic_keyword, "YACSS Topic Keyword")

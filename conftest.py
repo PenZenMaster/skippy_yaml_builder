@@ -26,11 +26,16 @@ def no_blocking_dialogs(monkeypatch):
 @pytest.fixture(autouse=True)
 def no_live_yacss_lookup(monkeypatch):
     """Every YAMLForm() construction calls out to the live YACSS API
-    (GET /templates, GET /cloud-accounts) to populate the Template combo
-    and Cloud Account checklist -- stubbed to return [] by default so the
-    test suite stays fast, deterministic, and offline-safe. Tests that
-    specifically exercise the live-population behavior should override
-    this with their own monkeypatch of main.fetch_templates/
-    main.fetch_cloud_accounts before constructing the form."""
+    (GET /templates, GET /cloud-accounts, GET /ai-providers, GET
+    /ai-models) to populate the Template combo, Cloud Account checklist/
+    per-tier picker, and the AI Platform/AI Model combos -- all four
+    stubbed to return [] by default so the test suite stays fast,
+    deterministic, and offline-safe. Tests that specifically exercise the
+    live-population behavior should override this with their own
+    monkeypatch of main.fetch_templates/main.fetch_cloud_accounts/
+    main.fetch_ai_providers/main.fetch_ai_models before constructing the
+    form."""
     monkeypatch.setattr("main.fetch_templates", lambda: [])
     monkeypatch.setattr("main.fetch_cloud_accounts", lambda: [])
+    monkeypatch.setattr("main.fetch_ai_providers", lambda: [])
+    monkeypatch.setattr("main.fetch_ai_models", lambda: [])

@@ -1,37 +1,40 @@
 ## Resume From
 
-Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-08-24_1001.md`
-Last session: 2026-08-24
-Branch: main | Latest commit: `35f1edd` | Split the "one per line" text
-fields (Target Cities, Services, Social/Citation URLs, FAQ Questions)
-into real YAML lists at save time (load still accepts the older
-flat-string format for backward compat); fixed a white-on-white text bug
-in Services and other `QTextEdit` fields caused by no widget ever having
-an explicit color/background set, so Windows dark mode could leave text
-invisible even though the underlying YAML data was correct; added the
-project's first real pytest suite (`tests/test_save_load_roundtrip.py`,
-now 10 tests, headless offscreen QApplication) covering save/load
-round-tripping, since the project previously had no test framework at
-all; and converted the `YACSS Build Type` free-text field to a
-`QComboBox` dropdown (blank / Diagram / Listicle / Masspage_Silo_Local)
-with case-insensitive load matching for legacy values. All four commits
-pushed to origin/main.
+Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-08-26_1930.md`
+Last session: 2026-08-26
+Branch: main | Version: 0.3.4 (not yet pushed)
 
-NEXT SESSION (top 3):
-1. Run a real United Structural Systems batch through rr_yacss_factory
-   using data authored via this form's YACSS section -- still the actual
-   end-to-end test this integration was built for, still not done. Check
-   rr_yacss_factory against the now-list-shaped export fields and the new
-   YACSS Build Type dropdown values.
-2. Consider consolidating the two venvs present in the repo root (`venv/`
-   canonical/documented vs `.venv/` undocumented, different PyQt6 patch
-   version) to avoid future confusion.
-3. rr_yacss_factory has since added a third job type (`masspage`, Silo
-   "AI Website" sites) with its own build-mechanics needs (Silo sub-mode,
-   page-title list, AI platform) not yet represented in this form's YACSS
-   section -- revisit once/if that job type becomes a real target. Now
-   that YACSS Build Type is a closed dropdown, adding it as a fourth
-   option is a one-line change plus a pytest case.
+Built out Salvo Metal Works' full client YAML config set (general +
+8 product categories), then converted `YACSS AI Platform`/`YACSS AI
+Model`/`YACSS Tone` from free-text to live dropdowns and gave each
+Diagram tier a named cloud-account picker instead of requiring a raw
+numeric ID. A real live test of that Salvo Metal Works build in the
+sibling `rr_yacss_factory` repo then surfaced a genuine math bug in this
+project's own `_compute_cloud_stack_total_pages` (never multiplied by
+`tier0_pages`, only ever tested at `tier0_pages=1` where that's
+invisible) -- fixed here too, mirroring the TypeScript fix. Full test
+suite 90/90 (was 81 at session start). See
+`docs/archive/checkpoints/CheckPoint-2026-08-26_1930.md` for full detail.
+
+**KNOWN ISSUE carried into next session**: no validation warns about
+bucket-unsafe characters (e.g. underscores) in `YACSS Bucket Keyword` --
+cost three live `generate` attempts in `rr_yacss_factory` to diagnose by
+hand this session. Worth a real check before the next client batch.
+
+NEXT SESSION (top 3, per the user's own stated plan): the user wants to
+**batch up several more clients**, two Diagram builds/month each,
+publishing to **Google Cloud Storage** specifically (the one provider
+with zero issues in the Salvo Metal Works publish, out of 8 total -- see
+`rr_yacss_factory`'s own checkpoint for why).
+1. Find a faster path to building a new client's YAML config set than
+   fully hand-authoring FAQs/content per category the way Salvo Metal
+   Works was done.
+2. Consider defaulting the Diagram tier cloud-account picker toward
+   GCS/Azure/the one working Backblaze account for new clients, given 5
+   of 8 providers failed with opaque errors on the most recent real
+   publish.
+3. Fix the bucket-keyword validation Known Issue above before or during
+   that batch.
 
 Session 2026-08-24 (part 2): converted YACSS Build Type to a dropdown
 selector. See `docs/archive/checkpoints/CheckPoint-2026-08-24_1001.md`

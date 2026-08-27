@@ -39,16 +39,33 @@ fields' meaning changes depending on which one is selected:
   (synced automatically to whatever's typed into `YACSS Tiers`) -- a
   real stack typically spreads different tiers across different cloud
   platforms (e.g. tier 1 on Vultr, tier 2 on Bunny) so the hosting
-  footprint doesn't look centralized.
+  footprint doesn't look centralized. Cloud Account IDs aren't shown
+  anywhere in the YACSS dashboard itself, so each row has a **Select...**
+  button opening a checkable picker of real accounts (by provider and
+  name, not just a bare number) instead of requiring you to already know
+  the ID -- it writes the ID(s) back into that row's text field, which
+  stays directly editable too if you already know the ID or the live
+  lookup below failed.
 - **Listicle / Masspage_Silo_Local**: use the flat checklist instead --
   pick whichever account(s) host the target Diagram build's bucket.
 
-Both the checklist and the per-tier table are populated live from the
-real YACSS account on startup (the same account `rr_yacss_factory`
+Both the checklist and the per-tier table/picker are populated live from
+the real YACSS account on startup (the same account `rr_yacss_factory`
 uses -- see "For developers" below for where the token comes from). If
 that lookup fails (no token, no network), both still work manually: the
 checklist just starts empty, and the "extra/manual account IDs" field
 next to it is exactly for that case.
+
+### AI Platform, AI Model, and Tone are live dropdowns
+`YACSS AI Platform` and `YACSS AI Model` are populated on startup from
+the same YACSS account (AI Model re-filters to whichever platform is
+currently selected). A provider not yet configured with a key on this
+account still shows up in the list -- hover it to see the tooltip -- but
+selecting it will fail at generation time. `YACSS Tone` is pre-filled
+with the confirmed real option set (Conversational, ProfessionalWarm,
+Authoritative, Empathetic, Witty, Inspirational, Persuasive, Relatable,
+Educational, Urgent). All three stay editable, same as `YACSS Template`,
+so an unlisted value can still be typed in and is preserved on save/load.
 
 ### FAQ Questions & Answers
 - Type a question, press **Enter** to jump to the Answer cell, type the

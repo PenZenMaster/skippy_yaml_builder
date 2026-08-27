@@ -69,6 +69,15 @@ def test_compute_cloud_stack_total_pages_matches_rr_yacss_factory_formula():
 
 def test_compute_cloud_stack_total_pages_no_tiers():
     assert YAMLForm._compute_cloud_stack_total_pages(1, []) == 1
+    assert YAMLForm._compute_cloud_stack_total_pages(3, []) == 3
+
+
+def test_compute_cloud_stack_total_pages_multiplies_by_tier0_pages():
+    # tier0=3, tiers 3/3 -> real YACSS tier totals confirmed live
+    # 2026-08-26 (Salvo Metal Works build 127455) were 3/9/27 = 39, not
+    # 3/3/9 = 15 -- tier0_pages is part of the running product, not just
+    # an additive base.
+    assert YAMLForm._compute_cloud_stack_total_pages(3, [3, 3]) == 39
 
 
 def test_build_cloud_stack_job_happy_path_no_warnings(qapp):
@@ -181,7 +190,7 @@ def _fill_listicle_masspage_shared_fields(form):
     form.inputs["YACSS Template"].setCurrentText("porto-001")
     form.inputs["YACSS Bucket Keyword"].setText("acme-plumbing-diagram-stack")
     form.inputs["YACSS Topic Keyword"].setText("emergency plumber Dallas")
-    form.inputs["YACSS AI Platform"].setText("openai")
+    form.inputs["YACSS AI Platform"].setCurrentText("openai")
     form.cloud_account_manual_input.setText("28205")
 
 
@@ -189,8 +198,8 @@ def test_build_listicle_job_happy_path_no_warnings(qapp):
     form = YAMLForm()
     form.inputs["YACSS Build Type"].setCurrentText("Listicle")
     _fill_listicle_masspage_shared_fields(form)
-    form.inputs["YACSS AI Model"].setText("gpt-5-mini")
-    form.inputs["YACSS Tone"].setText("friendly")
+    form.inputs["YACSS AI Model"].setCurrentText("gpt-5-mini")
+    form.inputs["YACSS Tone"].setCurrentText("friendly")
     form.inputs["YACSS Language"].setText("en")
     form.inputs["YACSS Items Per Listicle"].setText("6")
 
@@ -232,8 +241,8 @@ def test_build_listicle_job_includes_brand_and_urls_when_filled_in(qapp):
     form = YAMLForm()
     form.inputs["YACSS Build Type"].setCurrentText("Listicle")
     _fill_listicle_masspage_shared_fields(form)
-    form.inputs["YACSS AI Model"].setText("gpt-5-mini")
-    form.inputs["YACSS Tone"].setText("friendly")
+    form.inputs["YACSS AI Model"].setCurrentText("gpt-5-mini")
+    form.inputs["YACSS Tone"].setCurrentText("friendly")
     form.inputs["YACSS Language"].setText("en")
     form.inputs["YACSS Items Per Listicle"].setText("6")
     form.inputs["YACSS Brand Name"].setText("Acme Coffee Co")
@@ -261,8 +270,8 @@ def test_build_listicle_job_omits_brand_and_urls_when_blank(qapp):
     form = YAMLForm()
     form.inputs["YACSS Build Type"].setCurrentText("Listicle")
     _fill_listicle_masspage_shared_fields(form)
-    form.inputs["YACSS AI Model"].setText("gpt-5-mini")
-    form.inputs["YACSS Tone"].setText("friendly")
+    form.inputs["YACSS AI Model"].setCurrentText("gpt-5-mini")
+    form.inputs["YACSS Tone"].setCurrentText("friendly")
     form.inputs["YACSS Language"].setText("en")
     form.inputs["YACSS Items Per Listicle"].setText("6")
 
@@ -278,8 +287,8 @@ def test_build_listicle_job_warns_on_brand_name_without_url(qapp):
     form = YAMLForm()
     form.inputs["YACSS Build Type"].setCurrentText("Listicle")
     _fill_listicle_masspage_shared_fields(form)
-    form.inputs["YACSS AI Model"].setText("gpt-5-mini")
-    form.inputs["YACSS Tone"].setText("friendly")
+    form.inputs["YACSS AI Model"].setCurrentText("gpt-5-mini")
+    form.inputs["YACSS Tone"].setCurrentText("friendly")
     form.inputs["YACSS Language"].setText("en")
     form.inputs["YACSS Items Per Listicle"].setText("6")
     form.inputs["YACSS Brand Name"].setText("Acme Coffee Co")
@@ -295,8 +304,8 @@ def test_build_listicle_job_warns_on_brand_url_without_name(qapp):
     form = YAMLForm()
     form.inputs["YACSS Build Type"].setCurrentText("Listicle")
     _fill_listicle_masspage_shared_fields(form)
-    form.inputs["YACSS AI Model"].setText("gpt-5-mini")
-    form.inputs["YACSS Tone"].setText("friendly")
+    form.inputs["YACSS AI Model"].setCurrentText("gpt-5-mini")
+    form.inputs["YACSS Tone"].setCurrentText("friendly")
     form.inputs["YACSS Language"].setText("en")
     form.inputs["YACSS Items Per Listicle"].setText("6")
     form.inputs["YACSS Brand URL"].setText("https://acmecoffee.example")
@@ -312,8 +321,8 @@ def test_build_listicle_job_warns_on_non_positive_brand_position(qapp):
     form = YAMLForm()
     form.inputs["YACSS Build Type"].setCurrentText("Listicle")
     _fill_listicle_masspage_shared_fields(form)
-    form.inputs["YACSS AI Model"].setText("gpt-5-mini")
-    form.inputs["YACSS Tone"].setText("friendly")
+    form.inputs["YACSS AI Model"].setCurrentText("gpt-5-mini")
+    form.inputs["YACSS Tone"].setCurrentText("friendly")
     form.inputs["YACSS Language"].setText("en")
     form.inputs["YACSS Items Per Listicle"].setText("6")
     form.inputs["YACSS Brand Name"].setText("Acme Coffee Co")
@@ -373,8 +382,8 @@ def test_export_job_json_writes_listicle_job(qapp, tmp_path, monkeypatch):
     form = YAMLForm()
     form.inputs["YACSS Build Type"].setCurrentText("Listicle")
     _fill_listicle_masspage_shared_fields(form)
-    form.inputs["YACSS AI Model"].setText("gpt-5-mini")
-    form.inputs["YACSS Tone"].setText("friendly")
+    form.inputs["YACSS AI Model"].setCurrentText("gpt-5-mini")
+    form.inputs["YACSS Tone"].setCurrentText("friendly")
     form.inputs["YACSS Language"].setText("en")
     form.inputs["YACSS Items Per Listicle"].setText("6")
 

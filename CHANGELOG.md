@@ -3,6 +3,40 @@
 All notable changes to this project are documented in this file. Format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.4] - 2026-08-26
+
+### Added
+
+- **`YACSS AI Platform`, `YACSS AI Model`, and `YACSS Tone` are now
+  dropdowns, not free-text fields.** Guessing valid values previously
+  meant having YACSS's own dashboard open in another window. AI Platform
+  and AI Model are populated live from `GET /ai-providers`/`GET
+  /ai-models` (`yacss_api.py` gained `fetch_ai_providers`/
+  `fetch_ai_models`, mirroring rr_yacss_factory's confirmed
+  `listAiProviders`/`listAiModels`); AI Model is filtered to whichever
+  platform is currently selected and re-filters live when that changes.
+  An unconfigured provider is still shown (not hidden -- it may be
+  configured on a different account or later), just flagged via tooltip,
+  since selecting one fails generation with a real 401. Tone is
+  pre-populated with the one real `tone` enum this project has ever
+  confirmed (`Conversational`, `ProfessionalWarm`, `Authoritative`,
+  `Empathetic`, `Witty`, `Inspirational`, `Persuasive`, `Relatable`,
+  `Educational`, `Urgent` -- from a live `GET
+  /build-fields?type=listicle` capture). All three stay editable, same as
+  `YACSS Template`, so an unlisted or future value can still be typed and
+  is preserved on save/load.
+- **Diagram tier cloud accounts are now pickable by name, not just typed
+  as raw IDs.** Cloud Account IDs aren't shown anywhere in the YACSS
+  dashboard UI -- the only way to know what `28205` refers to was
+  `rr_yacss_factory`'s own `factory list-cloud-accounts` in a separate
+  window. Each tier row in `YACSS Diagram Cloud Account IDs Per Tier` now
+  has a "Select..." button opening a checkable picker (same "id --
+  provider -- name (client: ...)" labeling the flat Listicle/Masspage
+  checklist already uses) that writes the result back as plain
+  comma-separated ids -- the underlying cell/storage format is unchanged,
+  so nothing downstream needed updating, and typing ids directly still
+  works as a fallback if the live lookup fails.
+
 ## [0.3.3] - 2026-08-24
 
 ### Fixed

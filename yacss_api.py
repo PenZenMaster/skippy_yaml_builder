@@ -4,12 +4,14 @@ Path: E:\\projects\\skippy_yaml_builder\\yacss_api.py
 
 Description:
 Minimal read-only YACSS REST API client used to populate the YAML
-Builder's "YACSS Template" and "YACSS Cloud Account IDs" fields from live
-data instead of free-text guessing. Reads the same YACSS_API_TOKEN the
-sibling rr_yacss_factory CLI uses, from rr_yacss_factory's own .env --
-one token to manage, not two. Mirrors rr_yacss_factory/src/api/client.ts's
-confirmed real request shape (Bearer auth, GET /templates and
-GET /cloud-accounts envelopes) -- see that file if either shape changes.
+Builder's "YACSS Template", "YACSS Cloud Account IDs", "YACSS AI
+Platform", and "YACSS AI Model" fields from live data instead of
+free-text guessing. Reads the same YACSS_API_TOKEN the sibling
+rr_yacss_factory CLI uses, from rr_yacss_factory's own .env -- one token
+to manage, not two. Mirrors rr_yacss_factory/src/api/client.ts's confirmed
+real request shapes (Bearer auth, GET /templates, GET /cloud-accounts,
+GET /ai-providers, GET /ai-models envelopes) -- see that file if any
+shape changes.
 
 Author(s):
 Rank Rocket Co (C) Copyright 2026 - All Rights Reserved
@@ -18,10 +20,16 @@ Created Date:
 2026-08-24
 
 Last Modified Date:
-2026-08-24
+2026-08-26
 
 Comments:
 - v1.00 Initial implementation.
+- v1.01 Added fetch_ai_providers/fetch_ai_models, mirroring
+  rr_yacss_factory's confirmed-live listAiProviders()/listAiModels()
+  (src/api/client.ts) -- GET /ai-models is a real oddity, an object keyed
+  by provider rather than a flat list, with a non-array "counts" key
+  alongside the per-provider arrays that must be skipped rather than
+  assumed to be a model list too.
 """
 
 from pathlib import Path
@@ -96,3 +104,38 @@ def fetch_cloud_accounts() -> list[dict]:
         }
         for a in data.get("accounts", [])
     ]
+
+
+def fetch_ai_providers() -> list[dict]:
+    """Returns [{provider, configured, model, is_default}, ...] from
+    GET /ai-providers. `configured` is real per-account state (confirmed
+    live: a provider with no key connected on this account comes back
+    `configured: False` and fails generation with a 401 if used anyway) --
+    callers should use it to warn about, not necessarily hide, an
+    unconfigured provider, since it may be configured on a different
+    account or get configured later."""
+    data = _get("/ai-providers")
+    return list(data.get("providers", []))
+
+
+def fetch_ai_models() -> list[dict]:
+    """Returns [{id, name, provider}, ...] flattened from GET /ai-models,
+    whose real response is NOT a list -- it's an object keyed by provider
+    (`{openai: [{id, label}], openrouter: [...], counts: {...}}`). The
+    `counts` key (and any other non-array value) is skipped rather than
+    assumed to be a model list, mirroring rr_yacss_factory's
+    listAiModels()."""
+    data = _get("/ai-models")
+    models = []
+    for provider, items in data.items():
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            models.append(
+                {
+                    "id": str(item.get("id", "")),
+                    "name": item.get("label", str(item.get("id", ""))),
+                    "provider": provider,
+                }
+            )
+    return models
