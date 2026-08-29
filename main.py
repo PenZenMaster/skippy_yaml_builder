@@ -401,6 +401,8 @@ class YAMLForm(QMainWindow):
         "YACSS Brand Name", "YACSS Brand URL", "YACSS Brand Position",
         "YACSS Competitor URLs (one per line)", "YACSS Target URLs (one per line)",
         "YACSS Diagram Page Titles (one per line)", "YACSS Diagram Content",
+        "YACSS Text Before Target Link", "YACSS Text Of Target Link",
+        "YACSS Text After Target Link",
     ]
 
     # Fields that get a "Generate with AI" button in _build_field_grid,
@@ -566,6 +568,18 @@ class YAMLForm(QMainWindow):
             # free-form paragraph YACSS's cheap "spin content1" mode uses.
             "YACSS Diagram Page Titles (one per line)": QTextEdit(),
             "YACSS Diagram Content": QTextEdit(),
+            # Required by rr_yacss_factory's real CloudStackJob (schema.ts
+            # v1.14): landing_url alone was confirmed live (Salvo Metal
+            # Works, build 127752) to only ever produce a <link
+            # rel="canonical"> tag in the published page -- no real,
+            # visible anchor-text backlink to the client's site, which is
+            # the entire point of a cloud_stack build. These three mirror
+            # YACSS's own dashboard "Target Url 1" / "Text before/of/after
+            # target link" fields and are woven around * Website into a
+            # real <a href> link.
+            "YACSS Text Before Target Link": QLineEdit(),
+            "YACSS Text Of Target Link": QLineEdit(),
+            "YACSS Text After Target Link": QLineEdit(),
         }
 
         # Placeholder hints for the YACSS fields only -- their valid values
@@ -589,6 +603,9 @@ class YAMLForm(QMainWindow):
             "YACSS Competitor URLs (one per line)": "https://someothercafe.example",
             "YACSS Target URLs (one per line)": "https://acmecoffee.example",
             "YACSS Diagram Content": "free-form paragraph text for the stack's pages",
+            "YACSS Text Before Target Link": "e.g. Visit",
+            "YACSS Text Of Target Link": "e.g. Acme Plumbing",
+            "YACSS Text After Target Link": "e.g. to learn more about emergency plumbing in Dallas",
         }
 
         self.menu_bar = QMenuBar()
@@ -1008,6 +1025,17 @@ class YAMLForm(QMainWindow):
         # Diagram/cloud_stack, which has no separate topic concept.
         self.labels["YACSS Topic Keyword"].setVisible(not is_diagram)
         self.inputs["YACSS Topic Keyword"].setVisible(not is_diagram)
+        # The anchor-text backlink fields exist only on the real
+        # CloudStackJob schema (schema.ts v1.14) -- Listicle/Masspage have
+        # no equivalent, same reasoning as the brand/competitor/target URL
+        # fields just below.
+        for key in (
+            "YACSS Text Before Target Link",
+            "YACSS Text Of Target Link",
+            "YACSS Text After Target Link",
+        ):
+            self.labels[key].setVisible(is_diagram)
+            self.inputs[key].setVisible(is_diagram)
         # Brand placement + competitor/target URLs exist only on the real
         # ListicleJob schema (src/jobs/schema.ts) -- cloud_stack and masspage
         # have no equivalent fields at all, not even optional ones.
@@ -1453,12 +1481,18 @@ class YAMLForm(QMainWindow):
         keyword = self.inputs["YACSS Bucket Keyword"].text()
         template = self.inputs["YACSS Template"].currentText()
         landing_url = self.inputs["* Website"].text()
+        target_link_text_before = self.inputs["YACSS Text Before Target Link"].text()
+        target_link_text = self.inputs["YACSS Text Of Target Link"].text()
+        target_link_text_after = self.inputs["YACSS Text After Target Link"].text()
         tier0_pages_raw = self.inputs["YACSS Tier0 Pages"].text()
 
         require(client_name, "* Client Name")
         require(keyword, "YACSS Bucket Keyword")
         require(template, "YACSS Template")
         require(landing_url, "* Website")
+        require(target_link_text_before, "YACSS Text Before Target Link")
+        require(target_link_text, "YACSS Text Of Target Link")
+        require(target_link_text_after, "YACSS Text After Target Link")
 
         try:
             tier0_pages = int(tier0_pages_raw.strip() or "0")
@@ -1517,6 +1551,9 @@ class YAMLForm(QMainWindow):
             "name": client_name,
             "template": template,
             "landing_url": landing_url,
+            "target_link_text_before": target_link_text_before,
+            "target_link_text": target_link_text,
+            "target_link_text_after": target_link_text_after,
             "company": company,
             "tier0_pages": tier0_pages,
             "tiers": tiers,

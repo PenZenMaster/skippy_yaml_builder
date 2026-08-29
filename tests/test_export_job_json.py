@@ -10,6 +10,11 @@ def _fill_required_fields(form):
     form.inputs["* Phone"].setText("(214) 555-0100")
     form.inputs["Email"].setText("info@acmeplumbing.example")
     form.inputs["* Website"].setText("https://acmeplumbing.example")
+    form.inputs["YACSS Text Before Target Link"].setText("Visit")
+    form.inputs["YACSS Text Of Target Link"].setText("Acme Plumbing")
+    form.inputs["YACSS Text After Target Link"].setText(
+        "to learn more about emergency plumbing."
+    )
     form.inputs["Street Address"].setText("123 Main St")
     form.inputs["City"].setText("Dallas")
     form.inputs["State"].setText("TX")
@@ -100,6 +105,9 @@ def test_build_cloud_stack_job_happy_path_no_warnings(qapp):
     assert job["name"] == "Acme Plumbing"
     assert job["template"] == "porto-001"
     assert job["landing_url"] == "https://acmeplumbing.example"
+    assert job["target_link_text_before"] == "Visit"
+    assert job["target_link_text"] == "Acme Plumbing"
+    assert job["target_link_text_after"] == "to learn more about emergency plumbing."
     assert job["tier0_pages"] == 1
     assert job["tiers"] == [{"tier": 1, "pages": 3, "cloud_account_ids": ["28205", "27502"]}]
     assert job["page_titles"] == ["Home", "Page 1", "Page 2", "Page 3"]
@@ -142,6 +150,9 @@ def test_build_cloud_stack_job_warns_on_blank_required_fields(qapp):
     assert any("YACSS Bucket Keyword" in w for w in warnings)
     assert any("YACSS Template" in w for w in warnings)
     assert any("* Website" in w for w in warnings)
+    assert any("YACSS Text Before Target Link" in w for w in warnings)
+    assert any("YACSS Text Of Target Link" in w for w in warnings)
+    assert any("YACSS Text After Target Link" in w for w in warnings)
     assert job["job_id"] == "cloud-stack-job"  # fallback when name is blank
 
 
