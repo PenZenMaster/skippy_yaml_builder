@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QTextEdit, QPushButton,
     QFileDialog, QMessageBox, QMenuBar, QMainWindow, QMenu, QListWidget, QListWidgetItem, QGridLayout,
     QScrollArea, QComboBox, QTableWidget, QTableWidgetItem, QAbstractItemView, QAbstractItemDelegate,
-    QDialog, QTextBrowser, QTabWidget
+    QDialog, QTextBrowser, QTabWidget, QProgressBar
 )
 from PyQt6.QtGui import QFont
 from PyQt6.QtCore import Qt
@@ -22,13 +22,19 @@ from yacss_api import (
     fetch_ai_models,
     YacssApiError,
 )
+from ai_content_generator import (
+    generate_diagram_page_titles,
+    generate_diagram_content,
+    is_available as ai_content_is_available,
+    AiContentError,
+)
 
 # Bumped by hand alongside CHANGELOG.md -- see that file for what changed
 # at each version. Shown in the window title and the About dialog so a
 # running instance is identifiable, unlike the old hardcoded "v4" (a
 # leftover UI-redesign label, not a real version, that stopped being
 # updated years before this was added).
-__version__ = "0.3.4"
+__version__ = "0.4.0"
 
 README_PATH = Path(__file__).resolve().parent / "README.md"
 
@@ -206,6 +212,125 @@ class _CloudAccountPickerDialog(QDialog):
         return ids
 
 
+class _AIGeneratedTextDialog(QDialog):
+    """Preview/edit dialog shown after a "Generate with AI" button call --
+    used by both YACSS Diagram Page Titles and YACSS Diagram Content.
+    Never writes into the form field itself; the caller does that from
+    `result_text()` after `exec()` returns Accepted, same as every other
+    modal picker in this file (e.g. _CloudAccountPickerDialog). Mirrors
+    cloud-stack-generator's AIContentPreviewDialog (Accept/Regenerate/
+    Cancel, editable preview) so both apps' AI-generation UX matches."""
+
+    def __init__(
+        self,
+        title: str,
+        field_name: str,
+        content: str,
+        regenerate_callback,
+        parent=None,
+        required_line_count: int = None,
+    ):
+        super().__init__(parent)
+        self.regenerate_callback = regenerate_callback
+        self.required_line_count = required_line_count
+        self.setWindowTitle(title)
+        self.setMinimumWidth(600)
+        self.setMinimumHeight(400)
+
+        layout = QVBoxLayout()
+
+        info_label = QLabel(
+            f"Review the AI-generated {field_name} below. Edit directly if needed, "
+            "then Accept, or Regenerate for a new version."
+        )
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
+
+        # Live count check for callers that pass required_line_count (page
+        # titles only) -- a real report showed the AI returning 20 lines
+        # for a 19-required batch and the user only finding out from the
+        # underlying form's own counter *after* already clicking Accept.
+        # Same "X/Y OK" live-feedback pattern as the main form's
+        # _update_page_titles_count_label, so a count mismatch is visible
+        # here, before Accept, not after.
+        self.count_label = None
+        if required_line_count is not None:
+            self.count_label = QLabel()
+            self.count_label.setWordWrap(True)
+            layout.addWidget(self.count_label)
+
+        self.content_preview = QTextEdit()
+        self.content_preview.setPlainText(content)
+        if self.count_label is not None:
+            self.content_preview.textChanged.connect(self._update_count_label)
+        layout.addWidget(self.content_preview)
+
+        if self.count_label is not None:
+            self._update_count_label()
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 0)
+        self.progress_bar.setVisible(False)
+        layout.addWidget(self.progress_bar)
+
+        button_row = QHBoxLayout()
+        button_row.addStretch()
+        self.accept_button = QPushButton("Accept")
+        self.accept_button.clicked.connect(self.accept)
+        ThemeManager.apply_button_style(self.accept_button, "success")
+        button_row.addWidget(self.accept_button)
+
+        self.regenerate_button = QPushButton("Regenerate")
+        self.regenerate_button.clicked.connect(self._on_regenerate)
+        ThemeManager.apply_button_style(self.regenerate_button, "export")
+        button_row.addWidget(self.regenerate_button)
+
+        cancel_button = QPushButton("Cancel")
+        cancel_button.clicked.connect(self.reject)
+        ThemeManager.apply_button_style(cancel_button, "secondary")
+        button_row.addWidget(cancel_button)
+
+        layout.addLayout(button_row)
+        self.setLayout(layout)
+
+    def result_text(self) -> str:
+        return self.content_preview.toPlainText()
+
+    def _update_count_label(self):
+        if self.count_label is None:
+            return
+        current = len(
+            [line for line in self.content_preview.toPlainText().splitlines() if line.strip()]
+        )
+        required = self.required_line_count
+        if current == required:
+            self.count_label.setText(f"{current}/{required} lines -- OK")
+            self.count_label.setStyleSheet("color: green;")
+        else:
+            self.count_label.setText(
+                f"{current}/{required} lines -- the AI did not return the exact "
+                "count required; add or remove a line before accepting."
+            )
+            self.count_label.setStyleSheet("color: #b00000; font-weight: bold;")
+
+    def _on_regenerate(self):
+        self.accept_button.setEnabled(False)
+        self.regenerate_button.setEnabled(False)
+        self.progress_bar.setVisible(True)
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            new_content = self.regenerate_callback()
+            if new_content:
+                self.content_preview.setPlainText(new_content)
+        except AiContentError as exc:
+            QMessageBox.critical(self, "Generation Failed", str(exc))
+        finally:
+            QApplication.restoreOverrideCursor()
+            self.accept_button.setEnabled(True)
+            self.regenerate_button.setEnabled(True)
+            self.progress_bar.setVisible(False)
+
+
 class YAMLForm(QMainWindow):
     # Fields whose QTextEdit holds one entry per line; saved as a real YAML
     # list rather than the raw multi-line string. Loading still accepts the
@@ -244,6 +369,16 @@ class YAMLForm(QMainWindow):
         "YACSS Competitor URLs (one per line)", "YACSS Target URLs (one per line)",
         "YACSS Diagram Page Titles (one per line)", "YACSS Diagram Content",
     ]
+
+    # Fields that get a "Generate with AI" button in _build_field_grid,
+    # mapped to the YAMLForm method that handles that button's click.
+    # Diagram-only for now (see each handler's own guard) -- this is the
+    # #1 next-session item from docs/projectStatus.md's "Resume From":
+    # a faster path than hand-authoring page titles/content per client.
+    AI_GENERATABLE_FIELDS = {
+        "YACSS Diagram Page Titles (one per line)": "_generate_diagram_page_titles",
+        "YACSS Diagram Content": "_generate_diagram_content",
+    }
 
     # The only real enum this project has ever confirmed for "tone":
     # rr_yacss_factory's src/engine/batch-runner.ts documents these exact
@@ -597,6 +732,13 @@ class YAMLForm(QMainWindow):
                 widget.setPlaceholderText(self.placeholders[key])
             grid_layout.addWidget(lbl, row, 0)
             grid_layout.addWidget(widget, row, 1)
+            handler_name = self.AI_GENERATABLE_FIELDS.get(key)
+            if handler_name:
+                ai_button = QPushButton("Generate with AI")
+                ai_button.setFont(QFont("Arial", self.font_size))
+                ThemeManager.apply_button_style(ai_button, "export")
+                ai_button.clicked.connect(getattr(self, handler_name))
+                grid_layout.addWidget(ai_button, row, 2)
         return grid_layout
 
     def _build_tabs(self):
@@ -1078,6 +1220,180 @@ class YAMLForm(QMainWindow):
                 f"YACSS Diagram Page Titles (one per line) -- need {expected}, have {current}"
             )
             label.setStyleSheet("color: #b00000;")
+
+    def _diagram_ai_context(self) -> dict:
+        """Shared context for both YACSS Diagram AI-generation buttons,
+        pulled entirely from fields the user has already filled in
+        elsewhere on the form -- no new required input."""
+        return {
+            "business_name": self.inputs["* Client Name"].text().strip(),
+            "business_category": self.inputs["* Business Category"].text().strip(),
+            "target_keyword": self.inputs["YACSS Bucket Keyword"].text().strip(),
+            "target_cities": [
+                line
+                for line in self.inputs["* Target Cities (one per line)"].toPlainText().splitlines()
+                if line.strip()
+            ],
+            "services": [
+                line
+                for line in self.inputs["* Services (one per line)"].toPlainText().splitlines()
+                if line.strip()
+            ],
+        }
+
+    def _expected_page_title_count(self) -> int:
+        """The real required title count -- same computation
+        _update_page_titles_count_label already uses, so what "Generate
+        with AI" produces and what the live counter validates can never
+        disagree."""
+        try:
+            tier0_pages = int(self.inputs["YACSS Tier0 Pages"].text().strip() or "0")
+        except ValueError:
+            tier0_pages = 0
+        return self._compute_cloud_stack_total_pages(tier0_pages, self._tier_pages_from_table())
+
+    def _check_ai_generation_available(self) -> bool:
+        """Shared guard for both "Generate with AI" handlers: a configured
+        key and Diagram build type (the exact-page-count / spintax-content
+        prompts are both tuned for Diagram specifically -- see each
+        generator function's own doc comment in ai_content_generator.py)."""
+        if not ai_content_is_available():
+            QMessageBox.warning(
+                self,
+                "AI Not Available",
+                "AI content generation is not available. Set OPENAI_API_KEY "
+                "in cloud-stack-generator's .env (../cloud-stack-generator/.env) "
+                "to enable this feature.",
+            )
+            return False
+        if self.inputs["YACSS Build Type"].currentText() != "Diagram":
+            QMessageBox.warning(
+                self,
+                "Diagram Only",
+                "Generate with AI is tuned for Diagram's exact page-count "
+                "and spintax-content requirements -- switch YACSS Build "
+                "Type to Diagram first.",
+            )
+            return False
+        return True
+
+    @staticmethod
+    def _missing_diagram_ai_fields(context: dict) -> list:
+        """Names exactly which required field(s) are blank, in the same
+        order the form asks for them -- a real report showed the old fixed
+        "fill in all three" wording named * Client Name and * Business
+        Category even when both were already filled in and YACSS Bucket
+        Keyword (a different tab) was the only one actually empty, which
+        read as this project not reading the Client Info tab's fields at
+        all. Naming only the real gap(s) makes that unambiguous."""
+        missing = []
+        if not context["business_name"]:
+            missing.append("* Client Name (Client Info tab)")
+        if not context["business_category"]:
+            missing.append("* Business Category (Client Info tab)")
+        if not context["target_keyword"]:
+            missing.append("YACSS Bucket Keyword (YACSS Build tab)")
+        return missing
+
+    def _run_ai_generation(self, generate_fn):
+        """Runs `generate_fn` (no args) with a busy cursor and the form
+        disabled, same pattern cloud-stack-generator's business_tab.py
+        uses for its own "Generate with AI" buttons. Returns the generated
+        text, or None if generation failed (a message box is already shown
+        in that case -- callers should just return)."""
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        self.setEnabled(False)
+        try:
+            return generate_fn()
+        except AiContentError as exc:
+            QMessageBox.critical(self, "Generation Failed", str(exc))
+            return None
+        finally:
+            QApplication.restoreOverrideCursor()
+            self.setEnabled(True)
+
+    def _generate_diagram_page_titles(self):
+        if not self._check_ai_generation_available():
+            return
+        context = self._diagram_ai_context()
+        missing = self._missing_diagram_ai_fields(context)
+        if missing:
+            QMessageBox.warning(
+                self,
+                "Missing Information",
+                "Please fill in the following before generating page titles:\n- "
+                + "\n- ".join(missing),
+            )
+            return
+        title_count = self._expected_page_title_count()
+        if title_count < 1:
+            QMessageBox.warning(
+                self,
+                "Missing Information",
+                "Fill in YACSS Tier0 Pages and YACSS Tiers first so the "
+                "real required page count is known.",
+            )
+            return
+
+        def do_generate():
+            titles = generate_diagram_page_titles(title_count=title_count, **context)
+            return "\n".join(titles)
+
+        content = self._run_ai_generation(do_generate)
+        if content is None:
+            return
+
+        dialog = _AIGeneratedTextDialog(
+            title="AI Generated Page Titles",
+            field_name=f"Page Titles ({title_count} required)",
+            content=content,
+            regenerate_callback=do_generate,
+            parent=self,
+            required_line_count=title_count,
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._apply_generated_page_titles(dialog.result_text())
+
+    def _apply_generated_page_titles(self, text: str):
+        self.inputs["YACSS Diagram Page Titles (one per line)"].setPlainText(text)
+
+    def _generate_diagram_content(self):
+        if not self._check_ai_generation_available():
+            return
+        context = self._diagram_ai_context()
+        missing = self._missing_diagram_ai_fields(context)
+        if missing:
+            QMessageBox.warning(
+                self,
+                "Missing Information",
+                "Please fill in the following before generating content:\n- "
+                + "\n- ".join(missing),
+            )
+            return
+
+        def do_generate():
+            return generate_diagram_content(
+                city=self.inputs["City"].text().strip(),
+                state=self.inputs["State"].text().strip(),
+                **context,
+            )
+
+        content = self._run_ai_generation(do_generate)
+        if content is None:
+            return
+
+        dialog = _AIGeneratedTextDialog(
+            title="AI Generated Diagram Content",
+            field_name="Diagram Content",
+            content=content,
+            regenerate_callback=do_generate,
+            parent=self,
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._apply_generated_diagram_content(dialog.result_text())
+
+    def _apply_generated_diagram_content(self, text: str):
+        self.inputs["YACSS Diagram Content"].setPlainText(text)
 
     def _build_cloud_stack_job(self):
         """Builds a rr_yacss_factory CloudStackJob dict from the current

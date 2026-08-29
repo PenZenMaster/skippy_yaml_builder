@@ -3,6 +3,52 @@
 All notable changes to this project are documented in this file. Format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.0] - 2026-08-27
+
+### Added
+
+- **"Generate with AI" buttons on `YACSS Diagram Page Titles` and `YACSS
+  Diagram Content`** (YACSS Build tab, Diagram build type only) --
+  directly addresses the #1 next-session item from
+  `docs/projectStatus.md`: a faster path than hand-authoring page titles/
+  content per client. New `ai_content_generator.py` (mirrors
+  `yacss_api.py`'s pattern: a small standalone module, no Qt imports)
+  calls OpenAI using the business context already on the form (`* Client
+  Name`, `* Business Category`, `YACSS Bucket Keyword`, `* Target
+  Cities`, `* Services`) -- no new required fields. Page Titles generates
+  exactly the real multiplicative total `_compute_cloud_stack_total_pages`
+  requires; Content is written with real `{option1|option2|option3}`
+  spintax throughout, matching every real client content field already
+  hand-written for `rr_yacss_factory` (its cheap "spin content1" mode
+  spins whatever spintax this field contains). Both open a preview/edit
+  dialog (Accept/Regenerate/Cancel) before writing into the field, same
+  UX as sibling project `cloud-stack-generator`'s own "Generate with AI"
+  buttons. Reads `OPENAI_API_KEY` from `cloud-stack-generator`'s own
+  `.env` (already configured and working there) -- one key to manage,
+  not a third copy, same reasoning as `yacss_api.py` reusing
+  `rr_yacss_factory`'s `YACSS_API_TOKEN`.
+
+### Fixed
+
+- **"Missing Information" warning named the wrong fields.** A real report
+  showed `* Client Name` and `* Business Category` (Client Info tab) named
+  in the warning even though both were already filled in -- `YACSS Bucket
+  Keyword` (YACSS Build tab) was the only field actually blank, but the
+  fixed three-field wording made it read as though the Client Info tab
+  wasn't being read at all. The warning now names only the field(s) that
+  are actually empty.
+- **Page Titles count mismatch was only discoverable after Accept.** A
+  real report showed the AI returning 20 titles for a 19-required batch;
+  the only place that showed the mismatch was the underlying form's own
+  live counter, so the user only found out after already clicking Accept.
+  `_AIGeneratedTextDialog` now shows its own live "N/required" count
+  (same red/green feedback as the main field's counter), updated as the
+  preview is edited, so an off-count generation is visible before Accept.
+  Not auto-corrected (truncating risks cutting a good title; padding
+  risks inventing a fake one) -- LLMs following an exact-count instruction
+  is inherently imperfect, so this makes the mismatch impossible to miss
+  rather than pretending it can't happen.
+
 ## [0.3.4] - 2026-08-26
 
 ### Added
