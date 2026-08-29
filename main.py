@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QTextEdit, QPushButton,
     QFileDialog, QMessageBox, QMenuBar, QMainWindow, QMenu, QListWidget, QListWidgetItem, QGridLayout,
     QScrollArea, QComboBox, QTableWidget, QTableWidgetItem, QAbstractItemView, QAbstractItemDelegate,
-    QDialog, QTextBrowser, QTabWidget, QProgressBar
+    QDialog, QTextBrowser, QTabWidget, QProgressBar, QHeaderView
 )
 from PyQt6.QtGui import QFont
 from PyQt6.QtCore import Qt
@@ -145,6 +145,39 @@ class _FaqTableWidget(QTableWidget):
                 self.setItem(next_row, 1, QTableWidgetItem(""))
             self.setCurrentCell(next_row, 0)
             self.editItem(self.item(next_row, 0))
+
+
+class _PercentColumnTableWidget(QTableWidget):
+    """QTableWidget whose columns are kept at fixed percentages of the
+    table's own width, recomputed whenever the table is resized or first
+    shown. Qt's built-in header resize modes can pin one column
+    (Stretch/setStretchLastSection) or let columns grow with user drags
+    (Interactive), but none of them can hold every column to a specific
+    percentage of the whole -- hence this override, used by
+    diagram_tier_accounts_table so "Tier"/"Cloud Account IDs"/
+    "Pick Accounts" keep a stable 15/70/15 split as the window resizes."""
+
+    def __init__(self, rows: int, column_percents: list, parent=None):
+        super().__init__(rows, len(column_percents), parent)
+        self._column_percents = column_percents
+        header = self.horizontalHeader()
+        for col in range(len(column_percents)):
+            header.setSectionResizeMode(col, QHeaderView.ResizeMode.Fixed)
+
+    def _apply_column_percents(self):
+        total_width = self.viewport().width()
+        if total_width <= 0:
+            return
+        for col, percent in enumerate(self._column_percents):
+            self.setColumnWidth(col, int(total_width * percent))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._apply_column_percents()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._apply_column_percents()
 
 
 class _CloudAccountPickerDialog(QDialog):
@@ -619,11 +652,10 @@ class YAMLForm(QMainWindow):
         # result as plain comma-separated ids back into column 1, so column
         # 1 itself is untouched and still directly editable/typeable as a
         # fallback -- nothing downstream needs to change to consume it.
-        self.diagram_tier_accounts_table = QTableWidget(0, 3)
+        self.diagram_tier_accounts_table = _PercentColumnTableWidget(0, [0.15, 0.70, 0.15])
         self.diagram_tier_accounts_table.setHorizontalHeaderLabels(
             ["Tier", "Cloud Account IDs (comma separated)", "Pick Accounts"]
         )
-        self.diagram_tier_accounts_table.horizontalHeader().setStretchLastSection(True)
         self.diagram_tier_accounts_table.setFont(QFont("Arial", self.font_size))
         self.diagram_tier_accounts_table.setFixedHeight(120)
 
@@ -1903,9 +1935,33 @@ class YAMLForm(QMainWindow):
         data["YACSS Cloud Account IDs (comma separated)"] = (
             "" if is_diagram else self._serialize_cloud_account_ids()
         )
-        data["YACSS Diagram Tier Cloud Account IDs"] = (
-            self._serialize_diagram_tier_accounts() if is_diagram else []
-        )
+        tier_account_rows = self._serialize_diagram_tier_accounts() if is_diagram else []
+        data["YACSS Diagram Tier Cloud Account IDs"] = tier_account_rows
+        if is_diagram:
+            # Real bug found live (Salvo Metal Works chimney_shrouds.yaml,
+            # 2026-08-29): "YACSS Tiers (tier:pages, one per line)" is free
+            # text, and nothing stopped every line from being typed as
+            # "1:..." instead of incrementing to 2, 3, etc. That silently
+            # exports every tier row as {"tier": 1, ...}, which breaks the
+            # real pyramid page-count math and the live build itself.
+            # Caught here, at save time, since this is the one place both
+            # the parsed tier numbers and the account-id rows are already
+            # assembled.
+            tier_numbers = [row["tier"] for row in tier_account_rows]
+            duplicates = sorted({n for n in tier_numbers if tier_numbers.count(n) > 1})
+            if duplicates:
+                QMessageBox.warning(
+                    self,
+                    "Duplicate Tier Numbers",
+                    "The \"YACSS Tiers (tier:pages, one per line)\" field has more "
+                    "than one row using tier number(s) "
+                    + ", ".join(str(d) for d in duplicates)
+                    + ". Each line must use a distinct, increasing tier number "
+                    "(e.g. 1:5 / 2:3 / 3:2) -- otherwise YACSS receives multiple "
+                    "rows claiming the same tier and the build's page-count math "
+                    "breaks. Fix the tier numbers before saving.",
+                )
+                return
         data["FAQ Questions & Answers"] = self._serialize_faq_rows()
         data["city_embeds"] = self.city_data
         file_name, _ = QFileDialog.getSaveFileName(self, "Save YAML File", "", "YAML Files (*.yaml *.yml)")

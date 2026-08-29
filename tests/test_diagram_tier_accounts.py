@@ -169,6 +169,43 @@ def test_diagram_tier_accounts_round_trip_through_save_and_load(qapp, tmp_path, 
     assert reloaded.diagram_tier_accounts_table.item(1, 1).text() == "25702"
 
 
+def test_save_yaml_blocks_on_duplicate_tier_numbers(qapp, tmp_path, monkeypatch):
+    """Regression test for a real bug found live (Salvo Metal Works
+    chimney_shrouds.yaml, 2026-08-29): typing every line of 'YACSS Tiers
+    (tier:pages, one per line)' as '1:...' instead of incrementing exports
+    every tier row as {"tier": 1, ...}, breaking the real build's page-count
+    math. save_yaml must refuse to save until the tier numbers are fixed."""
+    from PyQt6.QtWidgets import QMessageBox
+
+    form = YAMLForm()
+    form.inputs["YACSS Build Type"].setCurrentText("Diagram")
+    form.inputs["YACSS Tiers (tier:pages, one per line)"].setPlainText("1:1\n1:6\n1:1")
+    # _serialize_diagram_tier_accounts skips rows with no ids entered, so
+    # real ids are needed here to reach the duplicate-tier-number check at
+    # all -- matching the real chimney_shrouds.yaml case that surfaced this.
+    form.diagram_tier_accounts_table.setItem(0, 1, QTableWidgetItem("25398"))
+    form.diagram_tier_accounts_table.setItem(1, 1, QTableWidgetItem("27504,25701"))
+    form.diagram_tier_accounts_table.setItem(2, 1, QTableWidgetItem("27504"))
+
+    out_file = tmp_path / "diagram.yaml"
+    monkeypatch.setattr(
+        QFileDialog, "getSaveFileName", lambda *a, **k: (str(out_file), "")
+    )
+    warned = {}
+
+    def fake_warning(parent, title, text):
+        warned["title"] = title
+        warned["text"] = text
+
+    monkeypatch.setattr(QMessageBox, "warning", fake_warning)
+
+    form.save_yaml()
+
+    assert warned.get("title") == "Duplicate Tier Numbers"
+    assert "1" in warned.get("text", "")
+    assert not out_file.exists()
+
+
 def test_loading_a_legacy_diagram_file_migrates_flat_ids_onto_every_tier(
     qapp, tmp_path, monkeypatch
 ):
