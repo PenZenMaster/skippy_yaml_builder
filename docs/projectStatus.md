@@ -1,8 +1,30 @@
 ## Resume From
 
-Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-08-26_1930.md`
-Last session: 2026-08-26
-Branch: main | Version: 0.3.4 (not yet pushed)
+Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-08-29_1533.md`
+Last session: 2026-08-29
+Branch: main | Version: 0.4.0 (not yet pushed)
+
+**PROJECT SHUTDOWN 2026-08-29**: called from the sibling `rr_yacss_factory`
+session after three real platform bugs were found and blocked on external
+YACSS support -- pause new work here too until support responds to the
+three drafted tickets (see that project's checkpoint for detail).
+
+This session: reviewed and cleanly split pre-existing uncommitted WIP (a
+complete AI-generation feature, `075e63c`) from two real fixes (column
+widths + duplicate-tier-number validator, `bf59f2f`), then added three
+new required anchor-text backlink fields (`266ff52`) after a live
+`rr_yacss_factory` build proved `landing_url` alone never produces a real
+citation backlink -- confirmed live from the sibling project that the fix
+is correct but currently inert due to a YACSS-side bug (ticket drafted,
+not yet submitted). Full detail in
+`docs/archive/checkpoints/CheckPoint-2026-08-29_1533.md`.
+
+`pytest -q`: 114/114 green. Four local commits ahead of `origin/main`,
+not pushed (shutdown protocol).
+
+---
+
+Previous session (2026-08-26), preserved for reference:
 
 Built out Salvo Metal Works' full client YAML config set (general +
 8 product categories), then converted `YACSS AI Platform`/`YACSS AI
