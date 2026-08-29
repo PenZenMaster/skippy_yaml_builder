@@ -53,11 +53,9 @@ Section 4, scoped to this repo:
   `docs/archive/checkpoints/CheckPoint-YYYY-MM-DD_HHMM.md`, update
   `docs/projectStatus.md`'s "Resume From" section, commit
   (`chore(checkpoint): YYYY-MM-DD_HHMM - <short summary>`).
-- **"Project shutdown"**: run the checkpoint protocol above, confirm
-  branch/commit state, list 3 bullets for next session. This repo has a
-  real `origin` remote (`github.com/PenZenMaster/skippy_yaml_builder`) --
-  do not push unless explicitly asked, same as any other push per the
-  global CLAUDE.md's action-with-care guidance.
+- **"Project shutdown"**: run the checkpoint protocol above, then push to
+  `origin/main` (`github.com/PenZenMaster/skippy_yaml_builder`), then
+  confirm branch/commit state and list 3 bullets for next session.
 
 ## Notes specific to this codebase
 
