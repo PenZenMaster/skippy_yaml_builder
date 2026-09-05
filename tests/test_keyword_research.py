@@ -1,11 +1,14 @@
 from unittest.mock import MagicMock, patch
 
+from PyQt6.QtWidgets import QMessageBox
+
 from keyword_research_api import (
     cluster_keywords,
     fetch_clusters,
     is_possible_brand_keyword,
     significant_tokens,
 )
+from main import YAMLForm
 
 
 def _kw(keyword, search_volume=0, core_keyword=None, intent="commercial", possible_brand=None):
@@ -213,3 +216,23 @@ def test_fetch_clusters_parses_the_real_dataforseo_field_path():
     assert len(clusters) == 1
     assert clusters[0]["keywords"][0]["keyword"] == "chimney cleaning service"
     assert clusters[0]["keywords"][0]["search_volume"] == 33100
+
+
+def test_run_keyword_research_shows_a_message_when_dataforseo_returns_zero_results(qapp):
+    # Confirmed live 2026-09-05: DataForSEO can genuinely return zero
+    # related keywords for an overly niche/uncommon exact phrase (e.g.
+    # "commercial rollup door service" -- not even the seed itself gets
+    # keyword data back). A silently-empty table is indistinguishable from
+    # "Run Research" not working at all -- this must show something.
+    form = YAMLForm()
+    form.inputs["YACSS Build Type"].setCurrentText("Diagram")
+    form.inputs["YACSS Bucket Keyword"].setText("commercial rollup door service")
+
+    with patch("main.fetch_clusters", return_value=[]), patch.object(
+        QMessageBox, "information"
+    ) as mock_information:
+        form._run_keyword_research()
+
+    assert form.keyword_research_results_table.rowCount() == 0
+    mock_information.assert_called_once()
+    assert "commercial rollup door service" in mock_information.call_args.args[2]

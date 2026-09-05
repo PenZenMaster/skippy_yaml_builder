@@ -1469,6 +1469,23 @@ class YAMLForm(QMainWindow):
             self.setEnabled(True)
 
         self._populate_keyword_research_table(clusters)
+        if not clusters:
+            # Confirmed live 2026-09-05: DataForSEO can genuinely return
+            # ZERO related keywords for an overly niche/uncommon exact
+            # phrase (e.g. "commercial rollup door service" -- not even
+            # the seed itself gets keyword data back) -- a real data gap,
+            # not a bug, but a silently-empty table is indistinguishable
+            # from the button not working at all, especially since the
+            # round trip is often well under a second. Say so explicitly.
+            QMessageBox.information(
+                self,
+                "No results",
+                f'DataForSEO found no related keywords for "{seed}"'
+                + (f' or "{secondary}"' if secondary else "")
+                + ". Try a more common phrasing (e.g. \"garage door repair\" "
+                "instead of an internal/industry term), check spelling, or "
+                "try a broader seed.",
+            )
 
     def _populate_keyword_research_table(self, clusters: list):
         """Fills the results table from fetch_clusters' output (already
