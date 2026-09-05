@@ -28,13 +28,14 @@ from ai_content_generator import (
     is_available as ai_content_is_available,
     AiContentError,
 )
+from keyword_research_api import fetch_clusters, KeywordResearchError
 
 # Bumped by hand alongside CHANGELOG.md -- see that file for what changed
 # at each version. Shown in the window title and the About dialog so a
 # running instance is identifiable, unlike the old hardcoded "v4" (a
 # leftover UI-redesign label, not a real version, that stopped being
 # updated years before this was added).
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 README_PATH = Path(__file__).resolve().parent / "README.md"
 
@@ -404,6 +405,12 @@ class YAMLForm(QMainWindow):
         "YACSS Text Before Target Link", "YACSS Text Of Target Link",
         "YACSS Text After Target Link",
     ]
+    # Lives on the new "Keyword Research" tab (see _build_tabs), not the
+    # YACSS Build tab, but still tracked through the generic self.inputs
+    # dict since it's a simple 2-option QComboBox -- kept as its own list
+    # (rather than folded into YACSS_BUILD_FIELDS) so a field's tab lookup
+    # stays honest about where its widget actually lives.
+    KEYWORD_RESEARCH_FIELDS = ["YACSS Content Generation Mode"]
 
     # Fields that get a "Generate with AI" button in _build_field_grid,
     # mapped to the YAMLForm method that handles that button's click.
@@ -487,6 +494,21 @@ class YAMLForm(QMainWindow):
         yacss_tone = QComboBox()
         yacss_tone.setEditable(True)
         yacss_tone.addItems(self.TONE_OPTIONS)
+
+        # Fixed 2-option enum (not editable, unlike the live-populated
+        # combos above) -- see CloudStackJob.content_mode in
+        # rr_yacss_factory/src/jobs/types.ts. Diagram-only in effect (a
+        # Listicle/Masspage job has no content_mode field at all), but left
+        # visible for every build type rather than toggled in
+        # _update_build_type_ui, matching how YACSS AI Platform/AI Model
+        # are already always shown regardless of build type.
+        yacss_content_mode = QComboBox()
+        yacss_content_mode.addItems(
+            [
+                "Cheap (spun template, current default)",
+                "AI-written per page (real distinct content, costs more)",
+            ]
+        )
 
         self.inputs = {
             "* Client Name": QLineEdit(),
@@ -580,6 +602,7 @@ class YAMLForm(QMainWindow):
             "YACSS Text Before Target Link": QLineEdit(),
             "YACSS Text Of Target Link": QLineEdit(),
             "YACSS Text After Target Link": QLineEdit(),
+            "YACSS Content Generation Mode": yacss_content_mode,
         }
 
         # Placeholder hints for the YACSS fields only -- their valid values
@@ -720,6 +743,45 @@ class YAMLForm(QMainWindow):
         self.export_job_button.clicked.connect(self.export_job_json)
         ThemeManager.apply_button_style(self.export_job_button, "export")
 
+        # Keyword Research tab: DataForSEO Labs keyword clustering (see
+        # keyword_research_api.py), a manual pre-step for picking Diagram
+        # page_titles from real search-volume data instead of hand-
+        # brainstorming -- see rr_yacss_factory's committed
+        # script/_prototype-keyword-cluster.ts, which this module ports.
+        self.keyword_research_seed_label = QLabel("Seed keyword: (fill in YACSS Bucket Keyword first)")
+        self.keyword_research_seed_label.setFont(QFont("Arial", self.font_size))
+        self.keyword_research_secondary_seed_input = QLineEdit()
+        self.keyword_research_secondary_seed_input.setFont(QFont("Arial", self.font_size))
+        self.keyword_research_secondary_seed_input.setPlaceholderText(
+            "Secondary/colloquial seed (optional) -- e.g. seed \"portable toilet "
+            "rental\" AND \"porta potty rental\" together if the industry has slang "
+            "for the same service"
+        )
+        self.keyword_research_run_button = QPushButton("Run Research")
+        self.keyword_research_run_button.setFont(QFont("Arial", self.font_size))
+        self.keyword_research_run_button.clicked.connect(self._run_keyword_research)
+        ThemeManager.apply_button_style(self.keyword_research_run_button, "export")
+
+        self.keyword_research_results_table = QTableWidget(0, 5)
+        self.keyword_research_results_table.setHorizontalHeaderLabels(
+            ["Use?", "Candidate Page Title", "Monthly Volume", "Flagged", "Sample Keywords"]
+        )
+        self.keyword_research_results_table.horizontalHeader().setStretchLastSection(True)
+        self.keyword_research_results_table.setFont(QFont("Arial", self.font_size))
+        self.keyword_research_results_table.setFixedHeight(300)
+        self.keyword_research_results_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.keyword_research_results_table.itemChanged.connect(
+            self._update_keyword_research_selection_count
+        )
+
+        self.keyword_research_selection_count_label = QLabel("0 / 0 selected")
+        self.keyword_research_selection_count_label.setFont(QFont("Arial", self.font_size))
+
+        self.keyword_research_send_button = QPushButton("Send Selected to YACSS Build Tab")
+        self.keyword_research_send_button.setFont(QFont("Arial", self.font_size))
+        self.keyword_research_send_button.clicked.connect(self._send_selected_titles_to_build_tab)
+        ThemeManager.apply_button_style(self.keyword_research_send_button, "success")
+
         self._build_tabs()
 
         # Buttons live in QHBoxLayout rows with addStretch() (see
@@ -759,8 +821,15 @@ class YAMLForm(QMainWindow):
         self.inputs["YACSS Diagram Page Titles (one per line)"].textChanged.connect(
             self._update_page_titles_count_label
         )
+        self.inputs["YACSS Bucket Keyword"].textChanged.connect(
+            self._refresh_keyword_research_seed_label
+        )
+        self.inputs["YACSS Topic Keyword"].textChanged.connect(
+            self._refresh_keyword_research_seed_label
+        )
         self._update_build_type_ui(yacss_build_type.currentText())
         self._update_page_titles_count_label()
+        self._refresh_keyword_research_seed_label()
 
         self._populate_live_dropdowns()
 
@@ -844,6 +913,27 @@ class YAMLForm(QMainWindow):
         yacss_layout.addStretch()
         yacss_tab.setLayout(yacss_layout)
         self.main_tabs.addTab(yacss_tab, "YACSS Build")
+
+        keyword_research_tab = QWidget()
+        keyword_research_layout = QVBoxLayout()
+        keyword_research_layout.addLayout(
+            self._build_field_grid(self.KEYWORD_RESEARCH_FIELDS)
+        )
+        keyword_research_layout.addWidget(self.keyword_research_seed_label)
+        keyword_research_layout.addWidget(self.keyword_research_secondary_seed_input)
+        run_row = QHBoxLayout()
+        run_row.addWidget(self.keyword_research_run_button)
+        run_row.addStretch()
+        keyword_research_layout.addLayout(run_row)
+        keyword_research_layout.addWidget(self.keyword_research_results_table)
+        send_row = QHBoxLayout()
+        send_row.addWidget(self.keyword_research_selection_count_label)
+        send_row.addWidget(self.keyword_research_send_button)
+        send_row.addStretch()
+        keyword_research_layout.addLayout(send_row)
+        keyword_research_layout.addStretch()
+        keyword_research_tab.setLayout(keyword_research_layout)
+        self.main_tabs.addTab(keyword_research_tab, "Keyword Research")
 
     def _populate_live_dropdowns(self):
         """Fetches templates/cloud accounts/AI providers/AI models from the
@@ -1072,6 +1162,7 @@ class YAMLForm(QMainWindow):
             self._sync_diagram_tier_table()
         else:
             self._update_page_titles_count_label()
+        self._refresh_keyword_research_seed_label()
 
     @staticmethod
     def _parse_tier_lines(text: str) -> list:
@@ -1312,6 +1403,150 @@ class YAMLForm(QMainWindow):
             tier0_pages = 0
         return self._compute_cloud_stack_total_pages(tier0_pages, self._tier_pages_from_table())
 
+    def _current_seed_keyword(self) -> str:
+        """The keyword field this tab treats as the real research seed:
+        for Diagram builds that's YACSS Bucket Keyword (the field that
+        actually becomes the stack's own SEO topic); for Listicle/Masspage
+        it's YACSS Topic Keyword instead (Bucket Keyword means something
+        different for those two types -- see _update_build_type_ui's own
+        doc comment). Deliberately reuses these existing fields rather
+        than adding a third parallel "seed keyword" input.
+
+        YACSS Build Type defaults to "" (no selection) until the operator
+        picks one, which is neither "Diagram" nor a Listicle/Masspage
+        value -- falling straight to Topic Keyword in that case would
+        ignore anything already typed into Bucket Keyword. Prefer whichever
+        field actually has text when Build Type isn't set yet."""
+        build_type = self.inputs["YACSS Build Type"].currentText()
+        bucket_keyword = self.inputs["YACSS Bucket Keyword"].text().strip()
+        topic_keyword = self.inputs["YACSS Topic Keyword"].text().strip()
+        if build_type == "Diagram":
+            return bucket_keyword
+        if build_type in ("Listicle", "Masspage_Silo_Local"):
+            return topic_keyword
+        return bucket_keyword or topic_keyword
+
+    def _refresh_keyword_research_seed_label(self):
+        seed = self._current_seed_keyword()
+        if seed:
+            self.keyword_research_seed_label.setText(f'Seed keyword: "{seed}"')
+            return
+        build_type = self.inputs["YACSS Build Type"].currentText()
+        source_field = "YACSS Bucket Keyword" if build_type == "Diagram" else "YACSS Topic Keyword"
+        self.keyword_research_seed_label.setText(
+            f"Seed keyword: (fill in {source_field} on the YACSS Build tab first)"
+        )
+
+    def _run_keyword_research(self):
+        """"Run Research" button handler: calls DataForSEO Labs (via
+        keyword_research_api.fetch_clusters) for the current seed(s) and
+        populates the results table. Synchronous/blocking with a busy
+        cursor, same pattern as _run_ai_generation and
+        _populate_live_dropdowns -- no background thread."""
+        seed = self._current_seed_keyword()
+        if not seed:
+            QMessageBox.warning(
+                self,
+                "No seed keyword",
+                "Fill in YACSS Bucket Keyword (Diagram) or YACSS Topic Keyword "
+                "(Listicle/Masspage) on the YACSS Build tab first.",
+            )
+            return
+        seeds = [seed]
+        secondary = self.keyword_research_secondary_seed_input.text().strip()
+        if secondary:
+            seeds.append(secondary)
+
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        self.setEnabled(False)
+        try:
+            clusters = fetch_clusters(seeds)
+        except KeywordResearchError as exc:
+            QMessageBox.critical(self, "Keyword research failed", str(exc))
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+            self.setEnabled(True)
+
+        self._populate_keyword_research_table(clusters)
+
+    def _populate_keyword_research_table(self, clusters: list):
+        """Fills the results table from fetch_clusters' output (already
+        volume-sorted). Flagged clusters (candidate_page_title_flagged --
+        every member looks like a brand/competitor name, see
+        keyword_research_api.is_possible_brand_keyword) are marked in red
+        rather than silently trusted or dropped -- the operator decides."""
+        table = self.keyword_research_results_table
+        table.blockSignals(True)
+        table.setRowCount(len(clusters))
+        for row, cluster in enumerate(clusters):
+            checkbox_item = QTableWidgetItem()
+            checkbox_item.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+            checkbox_item.setCheckState(Qt.CheckState.Unchecked)
+            table.setItem(row, 0, checkbox_item)
+
+            title_item = QTableWidgetItem(cluster["candidate_page_title"])
+            title_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            table.setItem(row, 1, title_item)
+
+            volume_item = QTableWidgetItem(f"{cluster['total_search_volume']:,}")
+            volume_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            table.setItem(row, 2, volume_item)
+
+            flagged = cluster["candidate_page_title_flagged"]
+            flagged_item = QTableWidgetItem("POSSIBLE BRAND" if flagged else "")
+            flagged_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            if flagged:
+                flagged_item.setForeground(Qt.GlobalColor.red)
+            table.setItem(row, 3, flagged_item)
+
+            sample_keywords = ", ".join(kw["keyword"] for kw in cluster["keywords"][:5])
+            sample_item = QTableWidgetItem(sample_keywords)
+            sample_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            table.setItem(row, 4, sample_item)
+        table.blockSignals(False)
+        self._update_keyword_research_selection_count()
+
+    def _update_keyword_research_selection_count(self):
+        table = self.keyword_research_results_table
+        selected = sum(
+            1
+            for row in range(table.rowCount())
+            if table.item(row, 0) and table.item(row, 0).checkState() == Qt.CheckState.Checked
+        )
+        needed = self._expected_page_title_count()
+        self.keyword_research_selection_count_label.setText(f"{selected} / {needed} selected")
+
+    def _send_selected_titles_to_build_tab(self):
+        """"Send Selected to YACSS Build Tab" button handler: writes the
+        checked rows' candidate titles (table order, already volume-sorted
+        by fetch_clusters) into YACSS Diagram Page Titles, confirming
+        first if that field already has content -- mirrors
+        export_job_json's own confirm-before-overwrite pattern."""
+        table = self.keyword_research_results_table
+        titles = [
+            table.item(row, 1).text()
+            for row in range(table.rowCount())
+            if table.item(row, 0) and table.item(row, 0).checkState() == Qt.CheckState.Checked
+        ]
+        if not titles:
+            QMessageBox.warning(self, "Nothing selected", "Check at least one row to send.")
+            return
+
+        page_titles_field = self.inputs["YACSS Diagram Page Titles (one per line)"]
+        if page_titles_field.toPlainText().strip():
+            reply = QMessageBox.question(
+                self,
+                "Replace existing page titles?",
+                "YACSS Diagram Page Titles already has content. Replace it "
+                f"with the {len(titles)} selected title(s)?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+        page_titles_field.setPlainText("\n".join(titles))
+
     def _check_ai_generation_available(self) -> bool:
         """Shared guard for both "Generate with AI" handlers: a configured
         key and Diagram build type (the exact-page-count / spintax-content
@@ -1464,12 +1699,13 @@ class YAMLForm(QMainWindow):
         advisory -- export_job_json still writes the file, since the
         real, authoritative validation is rr_yacss_factory's own job
         schema (src/jobs/schema.ts) when the file is actually used, not
-        anything duplicated here. FAQs have no dedicated field in the
-        real CloudStackJob -- see the class's own doc comment -- so
-        they're passed through extra_fields as the raw YACSS build-field
-        keys confirmed live (GET /build-fields?type=diagram's FAQ group):
-        faq_auto="2" (manual mode, no AI credits spent) plus parallel
-        faq_question[]/faq_answer[] arrays.
+        anything duplicated here. FAQs are sent via job["faqs"] (a plain
+        {question, answer} list) matching CloudStackJob.faqs directly --
+        an earlier version of this method sent them through
+        extra_fields as a bracketed faq_question[]/faq_answer[] pair,
+        which rr_yacss_factory's own memory confirms silently renders
+        ZERO FAQs on a live page (the working format was fixed there
+        2026-09-04; this export path had never been updated to match).
         """
         warnings = []
 
@@ -1563,11 +1799,22 @@ class YAMLForm(QMainWindow):
 
         faqs = self._serialize_faq_rows()
         if faqs:
-            job["extra_fields"] = {
-                "faq_auto": "2",
-                "faq_question[]": [f["question"] for f in faqs],
-                "faq_answer[]": [f["answer"] for f in faqs],
-            }
+            job["faqs"] = faqs
+
+        # content_mode omitted entirely for the cheap/default option --
+        # byte-for-byte the same export as before this field existed, so
+        # no real client job file changes behavior unless this is
+        # deliberately switched. See rr_yacss_factory's
+        # CloudStackJob.content_mode (src/jobs/types.ts v1.15) for what
+        # "ai_per_page" actually does server-side.
+        if self.inputs["YACSS Content Generation Mode"].currentText().startswith("AI-written"):
+            job["content_mode"] = "ai_per_page"
+            ai_platform = self.inputs["YACSS AI Platform"].currentText().strip()
+            ai_model = self.inputs["YACSS AI Model"].currentText().strip()
+            if ai_platform:
+                job["ai_platform"] = ai_platform
+            if ai_model:
+                job["ai_model"] = ai_model
 
         return job, warnings
 

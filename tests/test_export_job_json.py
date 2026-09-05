@@ -124,7 +124,11 @@ def test_build_cloud_stack_job_happy_path_no_warnings(qapp):
     assert "extra_fields" not in job
 
 
-def test_build_cloud_stack_job_maps_faqs_into_extra_fields(qapp):
+def test_build_cloud_stack_job_maps_faqs_into_the_real_faqs_field(qapp):
+    # Confirmed live 2026-09-04 (rr_yacss_factory's own memory): the old
+    # extra_fields.faq_question[]/faq_answer[] bracket format silently
+    # renders ZERO FAQs. job["faqs"] is the real, working CloudStackJob
+    # field (src/jobs/types.ts's FaqItem[]).
     form = YAMLForm()
     _fill_required_fields(form)
     form.inputs["YACSS Diagram Content"].setPlainText("content")
@@ -133,11 +137,43 @@ def test_build_cloud_stack_job_maps_faqs_into_extra_fields(qapp):
 
     job, _ = form._build_cloud_stack_job()
 
-    assert job["extra_fields"] == {
-        "faq_auto": "2",
-        "faq_question[]": ["Q1?", "Q2?"],
-        "faq_answer[]": ["A1.", "A2."],
-    }
+    assert job["faqs"] == [
+        {"question": "Q1?", "answer": "A1."},
+        {"question": "Q2?", "answer": "A2."},
+    ]
+    assert "extra_fields" not in job
+
+
+def test_build_cloud_stack_job_omits_content_mode_for_the_default_cheap_option(qapp):
+    form = YAMLForm()
+    _fill_required_fields(form)
+    form.inputs["YACSS Diagram Content"].setPlainText("content")
+    form.inputs["YACSS Content Generation Mode"].setCurrentText(
+        "Cheap (spun template, current default)"
+    )
+
+    job, _ = form._build_cloud_stack_job()
+
+    assert "content_mode" not in job
+    assert "ai_platform" not in job
+    assert "ai_model" not in job
+
+
+def test_build_cloud_stack_job_sets_content_mode_and_ai_fields_for_ai_per_page(qapp):
+    form = YAMLForm()
+    _fill_required_fields(form)
+    form.inputs["YACSS Diagram Content"].setPlainText("content")
+    form.inputs["YACSS AI Platform"].setCurrentText("openai")
+    form.inputs["YACSS AI Model"].setCurrentText("gpt-4o")
+    form.inputs["YACSS Content Generation Mode"].setCurrentText(
+        "AI-written per page (real distinct content, costs more)"
+    )
+
+    job, _ = form._build_cloud_stack_job()
+
+    assert job["content_mode"] == "ai_per_page"
+    assert job["ai_platform"] == "openai"
+    assert job["ai_model"] == "gpt-4o"
 
 
 def test_build_cloud_stack_job_warns_on_blank_required_fields(qapp):

@@ -3,6 +3,50 @@
 All notable changes to this project are documented in this file. Format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.0] - 2026-09-05
+
+### Added
+
+- **New "Keyword Research" tab**: replaces hand-brainstormed `page_titles`
+  with real, volume-ranked, brand-filtered keyword clusters from
+  DataForSEO Labs. New `keyword_research_api.py` (mirrors `yacss_api.py`'s
+  pattern -- a small standalone module, no Qt imports, credentials read
+  from `rr_yacss_factory`'s own `.env`) is a direct port of that sibling
+  project's committed `script/_prototype-keyword-cluster.ts` (v1.03),
+  which was live-tested through several real bug fixes this session: a
+  tiered clustering algorithm (DataForSEO's own `core_keyword` field
+  first, then a capped shared-word fallback that can't let one generic
+  word swallow the whole result set), a brand-name filter that keeps
+  competitor names out of suggested titles, and multi-seed support (a
+  formal seed + its colloquial synonym) for verticals where one seed
+  alone misses too much real search volume. The tab reuses the existing
+  `YACSS Bucket Keyword`/`YACSS Topic Keyword` fields as the research
+  seed rather than adding a third parallel field; "Run Research"
+  populates a results table (title, monthly volume, brand-flag, sample
+  keywords) with a live "N / needed" counter against the real
+  multiplicative page-title total; "Send Selected to YACSS Build Tab"
+  writes the checked titles straight into `YACSS Diagram Page Titles`.
+- **`YACSS Content Generation Mode`** (YACSS Build tab): opt-in real
+  per-page AI content instead of today's single spun template block.
+  Confirmed live 2026-09-05 (`rr_yacss_factory` test builds 128472/128473)
+  that `auto_content: "3"` genuinely produces distinct, topically-matched
+  content per page now that two account-level YACSS bugs are fixed --
+  needs `shortform_article` alongside it, which `_build_cloud_stack_job`
+  now sends (as `content_mode: "ai_per_page"` plus the existing `YACSS AI
+  Platform`/`YACSS AI Model` fields) when this mode is selected. Omitted
+  entirely for the default cheap option, so every existing exported job
+  file is unaffected unless deliberately switched.
+
+### Fixed
+
+- **`_build_cloud_stack_job`'s FAQ export** was still using the old
+  `extra_fields.faq_question[]`/`faq_answer[]` bracket format, which
+  `rr_yacss_factory`'s own project memory confirms silently renders ZERO
+  FAQs on a live page (the real, working format -- `job["faqs"]`, a plain
+  `{question, answer}` list -- was fixed there 2026-09-04, but this export
+  path had never been updated to match). Found while extending this exact
+  function for Content Generation Mode; fixed in the same pass.
+
 ## [0.4.0] - 2026-08-27
 
 ### Added

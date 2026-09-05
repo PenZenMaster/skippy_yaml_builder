@@ -7,7 +7,10 @@ def test_every_input_field_appears_in_exactly_one_tab_field_list(qapp):
     # be invisible/unreachable in the UI -- see _build_tabs's own doc
     # comment for why this must hold.
     tab_fields = (
-        YAMLForm.CLIENT_INFO_FIELDS + YAMLForm.CONTENT_FIELDS + YAMLForm.YACSS_BUILD_FIELDS
+        YAMLForm.CLIENT_INFO_FIELDS
+        + YAMLForm.CONTENT_FIELDS
+        + YAMLForm.YACSS_BUILD_FIELDS
+        + YAMLForm.KEYWORD_RESEARCH_FIELDS
     )
 
     form = YAMLForm()
