@@ -36,6 +36,18 @@ Last Modified Date:
 Comments:
 - v1.00 Initial implementation, ported from
   rr_yacss_factory/script/_prototype-keyword-cluster.ts.
+- v1.01 Added an off-target-location flag, independent of the brand-name
+  filter: real usage against a client seed ("garage door repair" for a
+  Joliet, IL client) surfaced results like "affordable garage door repair
+  near california" -- LOCATION_WORDS already excuses any known state/city
+  from looking like a brand name, so nothing caught these. Uses the
+  client's own State/Target Cities (already collected on the form) to
+  tell "local" locations from "everywhere else in the country" -- a
+  keyword naming an unrelated state/city is flagged the same way a brand
+  name is (excluded from the suggested title, shown for review, never
+  silently dropped), not filtered out entirely. This is a change from the
+  TS prototype this module was ported from (which has no client-profile
+  concept at all) -- the two are now intentionally divergent here.
 """
 
 from pathlib import Path
@@ -165,6 +177,59 @@ LOCATION_WORDS = {
     ]
 }
 
+STATE_ABBREVIATIONS = {
+    "AL": "alabama", "AK": "alaska", "AZ": "arizona", "AR": "arkansas",
+    "CA": "california", "CO": "colorado", "CT": "connecticut", "DE": "delaware",
+    "FL": "florida", "GA": "georgia", "HI": "hawaii", "ID": "idaho",
+    "IL": "illinois", "IN": "indiana", "IA": "iowa", "KS": "kansas",
+    "KY": "kentucky", "LA": "louisiana", "ME": "maine", "MD": "maryland",
+    "MA": "massachusetts", "MI": "michigan", "MN": "minnesota",
+    "MS": "mississippi", "MO": "missouri", "MT": "montana", "NE": "nebraska",
+    "NV": "nevada", "NH": "new hampshire", "NJ": "new jersey",
+    "NM": "new mexico", "NY": "new york", "NC": "north carolina",
+    "ND": "north dakota", "OH": "ohio", "OK": "oklahoma", "OR": "oregon",
+    "PA": "pennsylvania", "RI": "rhode island", "SC": "south carolina",
+    "SD": "south dakota", "TN": "tennessee", "TX": "texas", "UT": "utah",
+    "VT": "vermont", "VA": "virginia", "WA": "washington",
+    "WV": "west virginia", "WI": "wisconsin", "WY": "wyoming",
+    "DC": "district of columbia",
+}
+
+
+def local_location_tokens(state: str, target_cities: list[str]) -> set[str]:
+    """Builds the set of location words considered "local" for a client,
+    from the State field (a 2-letter abbreviation, resolved to its full
+    name -- an unrecognized value is used as-is, tokenized the same way)
+    and Target Cities (one per line, typically "City, ST" -- only the part
+    before the comma is used). Passed to is_off_target_location() so a
+    keyword naming the client's own state/cities is never flagged."""
+    tokens: set[str] = set()
+    state = state.strip()
+    if state:
+        full_name = STATE_ABBREVIATIONS.get(state.upper(), state)
+        tokens.update(significant_tokens(full_name))
+    for city_line in target_cities:
+        city = city_line.split(",")[0]
+        tokens.update(significant_tokens(city))
+    return tokens
+
+
+def is_off_target_location(local_location_tokens: set[str], keyword: str) -> bool:
+    """True if `keyword` names a specific location this project's
+    LOCATION_WORDS list recognizes that is NOT among the client's own
+    local_location_tokens -- e.g. "affordable garage door repair near
+    california" for an Illinois client. Independent of
+    is_possible_brand_keyword(), which deliberately excuses ANY known
+    location (local or not) from looking like a brand name -- neither
+    check catches what the other is for. Only fires for a location this
+    project's own hand-typed LOCATION_WORDS recognizes; an unlisted small
+    town on either side won't be caught, same documented gazetteer
+    limitation as the brand filter."""
+    found_locations = [t for t in significant_tokens(keyword) if t in LOCATION_WORDS]
+    if not found_locations:
+        return False
+    return any(loc not in local_location_tokens for loc in found_locations)
+
 
 def significant_tokens(keyword: str) -> list[str]:
     """Splits a keyword into significant (non-stopword) tokens for
@@ -276,8 +341,26 @@ def _title_case(text: str) -> str:
     return " ".join(word[:1].upper() + word[1:] if word else word for word in text.split(" "))
 
 
+def _flag_reason(kw: dict) -> str | None:
+    """Human-readable reason a keyword is excluded from candidate-title
+    selection, or None if it's usable. A keyword can be both a possible
+    brand AND off-target location at once (independent checks) -- shown
+    together rather than picking one arbitrarily."""
+    reasons = []
+    if kw.get("possible_brand"):
+        reasons.append("possible brand")
+    if kw.get("off_target_location"):
+        reasons.append("off-target location")
+    return " + ".join(reasons) if reasons else None
+
+
+def _is_usable(kw: dict) -> bool:
+    return not kw.get("possible_brand") and not kw.get("off_target_location")
+
+
 def _make_cluster(
     seed_tokens: set[str],
+    local_location_tokens: set[str],
     label: str,
     members: list[dict],
     candidate_title_source: str | None = None,
@@ -286,35 +369,45 @@ def _make_cluster(
     total_search_volume = sum(m["search_volume"] for m in sorted_members)
 
     # A core_keyword override (DataForSEO's own synonym-clustering text) is
-    # NOT automatically trusted -- it can itself be a brand name (e.g. a
-    # core_keyword of "lowes garage door repair"), so it goes through the
-    # same brand check as any heuristic-picked title before being used.
-    if candidate_title_source is not None and not is_possible_brand_keyword(
-        seed_tokens, candidate_title_source
+    # NOT automatically trusted -- it can itself be a brand name or an
+    # off-target location (e.g. a core_keyword of "lowes garage door
+    # repair", or one naming a state that isn't the client's own), so it
+    # goes through the same checks as any heuristic-picked title before
+    # being used.
+    if (
+        candidate_title_source is not None
+        and not is_possible_brand_keyword(seed_tokens, candidate_title_source)
+        and not is_off_target_location(local_location_tokens, candidate_title_source)
     ):
         return {
             "label": label,
             "total_search_volume": total_search_volume,
             "candidate_page_title": _title_case(candidate_title_source),
             "candidate_page_title_flagged": False,
+            "candidate_page_title_flag_reason": None,
             "keywords": sorted_members,
         }
 
-    # Prefer the highest-volume member that isn't a possible brand name;
-    # only fall back to a flagged one (and mark it) if every member is
-    # flagged.
-    best_non_brand = next((m for m in sorted_members if not m["possible_brand"]), None)
-    title_source = best_non_brand or sorted_members[0]
+    # Prefer the highest-volume usable member (not a possible brand, not an
+    # off-target location); only fall back to a flagged one (and mark it,
+    # with a reason) if every member is flagged.
+    best_usable = next((m for m in sorted_members if _is_usable(m)), None)
+    title_source = best_usable or sorted_members[0]
     return {
         "label": label,
         "total_search_volume": total_search_volume,
         "candidate_page_title": _title_case(title_source["keyword"]),
-        "candidate_page_title_flagged": best_non_brand is None,
+        "candidate_page_title_flagged": best_usable is None,
+        "candidate_page_title_flag_reason": (
+            None if best_usable is not None else _flag_reason(title_source)
+        ),
         "keywords": sorted_members,
     }
 
 
-def cluster_keywords(seed_tokens: set[str], keywords: list[dict]) -> list[dict]:
+def cluster_keywords(
+    seed_tokens: set[str], local_location_tokens: set[str], keywords: list[dict]
+) -> list[dict]:
     """Groups keywords in four tiers, most-trustworthy first:
 
     1. DataForSEO's own `core_keyword` field (its synonym-clustering
@@ -352,7 +445,7 @@ def cluster_keywords(seed_tokens: set[str], keywords: list[dict]) -> list[dict]:
     for core_keyword, members in by_core_keyword.items():
         for member in members:
             remaining.remove(member)
-        clusters.append(_make_cluster(seed_tokens, f"core: {core_keyword}", members, core_keyword))
+        clusters.append(_make_cluster(seed_tokens, local_location_tokens, f"core: {core_keyword}", members, core_keyword))
 
     # Tier 2: exact match on the full modifier-word signature.
     by_modifier_signature: dict[str, list[dict]] = {}
@@ -367,7 +460,7 @@ def cluster_keywords(seed_tokens: set[str], keywords: list[dict]) -> list[dict]:
             continue
         for member in members:
             remaining.remove(member)
-        clusters.append(_make_cluster(seed_tokens, f"modifiers: {signature}", members))
+        clusters.append(_make_cluster(seed_tokens, local_location_tokens, f"modifiers: {signature}", members))
 
     # Tier 3: greedily group by one shared modifier word, capped so it can
     # only ever cover a minority of what's left.
@@ -392,20 +485,29 @@ def cluster_keywords(seed_tokens: set[str], keywords: list[dict]) -> list[dict]:
         members = [kw for kw in remaining if token in modifiers_of(kw)]
         for member in members:
             remaining.remove(member)
-        clusters.append(_make_cluster(seed_tokens, f"shared word: {token}", members))
+        clusters.append(_make_cluster(seed_tokens, local_location_tokens, f"shared word: {token}", members))
 
     # Tier 4: true leftovers, each its own cluster.
     for kw in remaining:
-        clusters.append(_make_cluster(seed_tokens, "singleton", [kw]))
+        clusters.append(_make_cluster(seed_tokens, local_location_tokens, "singleton", [kw]))
 
     return sorted(clusters, key=lambda c: c["total_search_volume"], reverse=True)
 
 
-def fetch_clusters(seeds: list[str]) -> list[dict]:
+def fetch_clusters(
+    seeds: list[str], local_location_tokens: set[str] | None = None
+) -> list[dict]:
     """Top-level entry point for the "Run Research" button: fetches
     related keywords + search intent for every seed, merges/clusters them,
     and returns volume-sorted clusters ready to display in the results
-    table. Raises KeywordResearchError on any DataForSEO failure."""
+    table. `local_location_tokens` (see that function's own doc comment --
+    typically built via local_location_tokens() from the client's own
+    State/Target Cities) tells the off-target-location flag which
+    locations are the client's own; omit/empty means every recognized
+    location is treated as off-target. Raises KeywordResearchError on any
+    DataForSEO failure."""
+    if local_location_tokens is None:
+        local_location_tokens = set()
     pools = [fetch_related_keywords(seed) for seed in seeds]
     related = merge_fetched_keywords(pools)
 
@@ -426,9 +528,12 @@ def fetch_clusters(seeds: list[str]) -> list[dict]:
             **kw,
             "intent": intent_by_keyword.get(kw["keyword"], "unknown"),
             "possible_brand": is_possible_brand_keyword(seed_tokens, kw["keyword"]),
+            "off_target_location": is_off_target_location(
+                local_location_tokens, kw["keyword"]
+            ),
         }
         for kw in related
         if kw["keyword"] in intent_by_keyword
     ]
 
-    return cluster_keywords(seed_tokens, ranked)
+    return cluster_keywords(seed_tokens, local_location_tokens, ranked)

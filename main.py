@@ -28,7 +28,11 @@ from ai_content_generator import (
     is_available as ai_content_is_available,
     AiContentError,
 )
-from keyword_research_api import fetch_clusters, KeywordResearchError
+from keyword_research_api import (
+    fetch_clusters,
+    local_location_tokens,
+    KeywordResearchError,
+)
 
 # Bumped by hand alongside CHANGELOG.md -- see that file for what changed
 # at each version. Shown in the window title and the About dialog so a
@@ -1457,10 +1461,24 @@ class YAMLForm(QMainWindow):
         if secondary:
             seeds.append(secondary)
 
+        # Confirmed live 2026-09-05: a generic seed ("garage door repair")
+        # against a nationwide DataForSEO location returns results naming
+        # every state, not just the client's own -- e.g. "affordable
+        # garage door repair near california" for a Joliet, IL client.
+        # Uses the client's own State/Target Cities (already on the
+        # Client Info/Content tabs) so those get flagged, not silently
+        # trusted as if they were locally relevant.
+        target_cities = [
+            line
+            for line in self.inputs["* Target Cities (one per line)"].toPlainText().splitlines()
+            if line.strip()
+        ]
+        local_tokens = local_location_tokens(self.inputs["State"].text(), target_cities)
+
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         self.setEnabled(False)
         try:
-            clusters = fetch_clusters(seeds)
+            clusters = fetch_clusters(seeds, local_tokens)
         except KeywordResearchError as exc:
             QMessageBox.critical(self, "Keyword research failed", str(exc))
             return
@@ -1511,7 +1529,8 @@ class YAMLForm(QMainWindow):
             table.setItem(row, 2, volume_item)
 
             flagged = cluster["candidate_page_title_flagged"]
-            flagged_item = QTableWidgetItem("POSSIBLE BRAND" if flagged else "")
+            flag_reason = cluster.get("candidate_page_title_flag_reason") or ""
+            flagged_item = QTableWidgetItem(flag_reason.upper() if flagged else "")
             flagged_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
             if flagged:
                 flagged_item.setForeground(Qt.GlobalColor.red)

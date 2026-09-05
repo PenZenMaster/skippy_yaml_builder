@@ -5,13 +5,24 @@ from PyQt6.QtWidgets import QMessageBox
 from keyword_research_api import (
     cluster_keywords,
     fetch_clusters,
+    is_off_target_location,
     is_possible_brand_keyword,
+    local_location_tokens,
     significant_tokens,
 )
 from main import YAMLForm
 
+_NO_LOCAL_TOKENS: set[str] = set()
 
-def _kw(keyword, search_volume=0, core_keyword=None, intent="commercial", possible_brand=None):
+
+def _kw(
+    keyword,
+    search_volume=0,
+    core_keyword=None,
+    intent="commercial",
+    possible_brand=None,
+    off_target_location=False,
+):
     seed_tokens = {"chimney", "cleaning", "service", "garage", "door", "repair", "commercial"}
     return {
         "keyword": keyword,
@@ -23,6 +34,7 @@ def _kw(keyword, search_volume=0, core_keyword=None, intent="commercial", possib
             if possible_brand is None
             else possible_brand
         ),
+        "off_target_location": off_target_location,
     }
 
 
@@ -64,7 +76,7 @@ def test_cluster_keywords_groups_by_core_keyword_first():
     keywords = [
         _kw("chimney cleaning service", search_volume=33100, core_keyword="chimney cleaning services"),
     ]
-    clusters = cluster_keywords(seed_tokens, keywords)
+    clusters = cluster_keywords(seed_tokens, _NO_LOCAL_TOKENS, keywords)
     assert len(clusters) == 1
     assert clusters[0]["label"] == "core: chimney cleaning services"
     assert clusters[0]["candidate_page_title"] == "Chimney Cleaning Services"
@@ -83,7 +95,7 @@ def test_cluster_keywords_does_not_let_one_generic_word_swallow_everything():
         _kw("chimney repair estimate", search_volume=110),
         _kw("chimney liner replacement", search_volume=70),
     ]
-    clusters = cluster_keywords(seed_tokens, keywords)
+    clusters = cluster_keywords(seed_tokens, _NO_LOCAL_TOKENS, keywords)
     biggest = max(clusters, key=lambda c: len(c["keywords"]))
     assert len(biggest["keywords"]) < len(keywords)
 
@@ -104,7 +116,7 @@ def test_cluster_keywords_excludes_brand_keyword_from_candidate_title_when_alter
         _kw("chimney liner repair", search_volume=100),
         _kw("chimney flue cleaning", search_volume=50),
     ]
-    clusters = cluster_keywords(seed_tokens, keywords)
+    clusters = cluster_keywords(seed_tokens, _NO_LOCAL_TOKENS, keywords)
     sweep_cluster = next(
         c for c in clusters if any(kw["keyword"] == "billy sweet chimney sweep" for kw in c["keywords"])
     )
@@ -119,7 +131,7 @@ def test_cluster_keywords_flags_candidate_title_when_every_member_is_a_brand_nam
         _kw("billy sweet chimney sweep", search_volume=480),
         _kw("billy sweet chimney sweep reviews", search_volume=30),
     ]
-    clusters = cluster_keywords(seed_tokens, keywords)
+    clusters = cluster_keywords(seed_tokens, _NO_LOCAL_TOKENS, keywords)
     assert len(clusters) == 1
     assert clusters[0]["candidate_page_title_flagged"] is True
 
@@ -138,7 +150,7 @@ def test_cluster_keywords_flags_a_brand_core_keyword_instead_of_bypassing_the_ch
             intent="navigational",
         ),
     ]
-    clusters = cluster_keywords(seed_tokens, keywords)
+    clusters = cluster_keywords(seed_tokens, _NO_LOCAL_TOKENS, keywords)
     assert len(clusters) == 1
     assert clusters[0]["candidate_page_title_flagged"] is True
 
@@ -236,3 +248,89 @@ def test_run_keyword_research_shows_a_message_when_dataforseo_returns_zero_resul
     assert form.keyword_research_results_table.rowCount() == 0
     mock_information.assert_called_once()
     assert "commercial rollup door service" in mock_information.call_args.args[2]
+
+
+def test_local_location_tokens_resolves_state_abbreviation_and_target_cities():
+    tokens = local_location_tokens("IL", ["Joliet, IL", "Aurora, IL"])
+    assert "illinoi" in tokens  # "illinois" through the same normalizer LOCATION_WORDS uses
+    assert "joliet" in tokens
+    assert "aurora" in tokens
+
+
+def test_is_off_target_location_flags_a_state_the_client_does_not_serve():
+    # Confirmed live 2026-09-05: seeding "garage door repair" for a
+    # Joliet, IL client returned "affordable garage door repair near
+    # california" -- the brand filter doesn't catch this (LOCATION_WORDS
+    # already excuses any known location from looking like a brand name).
+    local_tokens = local_location_tokens("IL", ["Joliet, IL"])
+    assert is_off_target_location(local_tokens, "affordable garage door repair near california") is True
+
+
+def test_is_off_target_location_does_not_flag_the_clients_own_state_or_city():
+    local_tokens = local_location_tokens("IL", ["Joliet, IL"])
+    assert is_off_target_location(local_tokens, "garage door repair joliet il") is False
+    assert is_off_target_location(local_tokens, "garage door repair illinois") is False
+
+
+def test_is_off_target_location_does_not_flag_a_keyword_with_no_location_at_all():
+    local_tokens = local_location_tokens("IL", ["Joliet, IL"])
+    assert is_off_target_location(local_tokens, "affordable garage door repair near me") is False
+
+
+def test_cluster_keywords_flags_and_replaces_an_off_target_location_title():
+    # The "good" alternative deliberately avoids naming any city not in
+    # LOCATION_WORDS' hand-typed gazetteer (e.g. "joliet") -- an unlisted
+    # small town would itself look like an unexplained leftover word to
+    # the unrelated, pre-existing brand filter, which isn't what this
+    # test is checking.
+    seed_tokens = {"garage", "door", "repair"}
+    local_tokens = local_location_tokens("IL", ["Joliet, IL"])
+    keywords = [
+        _kw(
+            "affordable garage door repair near california",
+            search_volume=500,
+            off_target_location=True,
+        ),
+        _kw("affordable garage door repair near me", search_volume=90),
+    ]
+    clusters = cluster_keywords(seed_tokens, local_tokens, keywords)
+    off_target_cluster = next(
+        c
+        for c in clusters
+        if any(kw["keyword"].endswith("california") for kw in c["keywords"])
+    )
+    # Confirmed live: without this fix, the highest-volume member would win
+    # regardless of relevance -- the off-target one is 500 vs. 90.
+    assert off_target_cluster["candidate_page_title"] != "Affordable Garage Door Repair Near California"
+    assert off_target_cluster["candidate_page_title_flagged"] is False
+
+
+def test_cluster_keywords_flags_candidate_title_when_every_member_is_off_target():
+    seed_tokens = {"garage", "door", "repair"}
+    local_tokens = local_location_tokens("IL", ["Joliet, IL"])
+    keywords = [
+        _kw(
+            "affordable garage door repair near california",
+            search_volume=500,
+            off_target_location=True,
+        ),
+    ]
+    clusters = cluster_keywords(seed_tokens, local_tokens, keywords)
+    assert len(clusters) == 1
+    assert clusters[0]["candidate_page_title_flagged"] is True
+    assert clusters[0]["candidate_page_title_flag_reason"] == "off-target location"
+
+
+def test_cluster_keywords_flag_reason_combines_brand_and_off_target_location():
+    seed_tokens = {"garage", "door", "repair"}
+    local_tokens = local_location_tokens("IL", ["Joliet, IL"])
+    keywords = [
+        _kw(
+            "billy sweet garage door repair california",
+            search_volume=500,
+            possible_brand=True,
+            off_target_location=True,
+        ),
+    ]
+    clusters = cluster_keywords(seed_tokens, local_tokens, keywords)
+    assert clusters[0]["candidate_page_title_flag_reason"] == "possible brand + off-target location"
