@@ -13,7 +13,12 @@ mechanics fields. This file is rendered directly inside the app itself
    cities, services).
 2. Fill in the `YACSS *` fields (see below) to describe the build itself.
 3. **File > Open YAML** reopens a saved client file; **Save YAML** at the
-   bottom writes it out.
+   bottom writes it out. Neither dialog has a fixed default folder (it
+   opens wherever your OS last remembered) -- existing client files live
+   in this repo's own gitignored `client_yaml/<client-slug>/*.yaml`
+   (e.g. `client_yaml/salvo_metal_works/dormers.yaml`), one folder per
+   client, sometimes one file per product line/service within it. Navigate
+   there yourself each time; the app won't remember or suggest it.
 
 ### YACSS Build Type changes what the other YACSS fields mean
 The three build types build fundamentally different things, and several
