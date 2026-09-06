@@ -1,5 +1,33 @@
 ## Resume From
 
+Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-09-06_1250.md`
+Last session: 2026-09-06
+Branch: main | Version: 0.7.0
+
+**2026-09-06**: v0.6.0 (File > Exit, FAQ 50/50 columns, two new optional
+name fields fixing a real company.name/listicle.name gap, a real
+phone-mask load bug fixed via live testing, README rewritten as a current
+manual) then v0.7.0 (new "Content Silo" tab -- a Category -> Service
+content pipeline for a client's own website, independent of any YACSS job
+type; two-pass DataForSEO clustering, real landing-page-depth AI content
+per page, Markdown export reproducing the real silo folder structure).
+Full suite 163/163 passing. Survived and recovered from a serious
+multi-agent incident mid-session (see the checkpoint's Known Issues #1)
+-- no lasting damage, new working practices adopted for subagent use
+going forward. This project's own checkpoint docs had gone stale since
+2026-08-29 (intervening sessions were documented from the sibling
+`rr_yacss_factory` side instead) -- caught back up as of this entry. Full
+detail in `docs/archive/checkpoints/CheckPoint-2026-09-06_1250.md`.
+
+**Next session**: real client use of the Content Silo tab to validate
+output quality; consider the deferred direct-WordPress-publish fast-follow
+(RankRocket MCP tools confirmed available); keep this file current going
+forward rather than defaulting back to `rr_yacss_factory`-only checkpoints.
+
+---
+
+Previous session (2026-08-29, shutdown), preserved for reference:
+
 Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-08-29_1533.md`
 Last session: 2026-08-29
 Branch: main | Version: 0.4.0 (not yet pushed)
