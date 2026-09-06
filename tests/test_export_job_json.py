@@ -122,6 +122,26 @@ def test_build_cloud_stack_job_happy_path_no_warnings(qapp):
         "email": "info@acmeplumbing.example",
     }
     assert "extra_fields" not in job
+    assert "hero_image_url" not in job
+    assert "content_image_url" not in job
+
+
+def test_build_cloud_stack_job_maps_hero_and_content_image_urls(qapp):
+    # Both fields already existed on the form (Content tab) but were never
+    # read by _build_cloud_stack_job -- Hero Image URL was silently
+    # dropped, and there was no Content Image URL field at all. Both real,
+    # confirmed-live CloudStackJob fields (rr_yacss_factory's
+    # yacss-content-image-fix memory).
+    form = YAMLForm()
+    _fill_required_fields(form)
+    form.inputs["YACSS Diagram Content"].setPlainText("content")
+    form.inputs["Hero Image URL"].setText("https://acmeplumbing.example/hero.jpg")
+    form.inputs["Content Image URL"].setText("https://acmeplumbing.example/van-photo.jpg")
+
+    job, _ = form._build_cloud_stack_job()
+
+    assert job["hero_image_url"] == "https://acmeplumbing.example/hero.jpg"
+    assert job["content_image_url"] == "https://acmeplumbing.example/van-photo.jpg"
 
 
 def test_build_cloud_stack_job_maps_faqs_into_the_real_faqs_field(qapp):

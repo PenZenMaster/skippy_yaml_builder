@@ -396,8 +396,9 @@ class YAMLForm(QMainWindow):
     ]
     CONTENT_FIELDS = [
         "Google Maps Embed Code", "* Target Cities (one per line)", "* Services (one per line)",
-        "Social/Citation URLs (one per line)", "Hero Image URL", "City Page Hero Image Base URL",
-        "Logo URL", "Contact Email Address", "Primary Business Category",
+        "Social/Citation URLs (one per line)", "Hero Image URL", "Content Image URL",
+        "City Page Hero Image Base URL", "Logo URL", "Contact Email Address",
+        "Primary Business Category",
     ]
     YACSS_BUILD_FIELDS = [
         "YACSS Build Type", "YACSS Template", "YACSS Bucket Keyword", "YACSS Topic Keyword",
@@ -533,6 +534,7 @@ class YAMLForm(QMainWindow):
             "* Services (one per line)": QTextEdit(),
             "Social/Citation URLs (one per line)": QTextEdit(),
             "Hero Image URL": QLineEdit(),
+            "Content Image URL": QLineEdit(),
             "City Page Hero Image Base URL": QLineEdit(),
             "Logo URL": QLineEdit(),
             "Contact Email Address": QLineEdit(),
@@ -1742,6 +1744,11 @@ class YAMLForm(QMainWindow):
         which rr_yacss_factory's own memory confirms silently renders
         ZERO FAQs on a live page (the working format was fixed there
         2026-09-04; this export path had never been updated to match).
+        Hero Image URL/Content Image URL (Content tab) map straight to
+        CloudStackJob.hero_image_url/content_image_url -- both real,
+        confirmed-live fields (rr_yacss_factory's yacss-content-image-fix
+        memory) that this export path had simply never read before,
+        despite Hero Image URL already existing as a form field.
         """
         warnings = []
 
@@ -1836,6 +1843,13 @@ class YAMLForm(QMainWindow):
         faqs = self._serialize_faq_rows()
         if faqs:
             job["faqs"] = faqs
+
+        hero_image_url = self.inputs["Hero Image URL"].text().strip()
+        if hero_image_url:
+            job["hero_image_url"] = hero_image_url
+        content_image_url = self.inputs["Content Image URL"].text().strip()
+        if content_image_url:
+            job["content_image_url"] = content_image_url
 
         # content_mode omitted entirely for the cheap/default option --
         # byte-for-byte the same export as before this field existed, so
