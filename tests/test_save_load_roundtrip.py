@@ -250,3 +250,51 @@ def test_save_then_load_round_trips_non_ascii_content(qapp, tmp_path, monkeypatc
             "answer": "It resists fire for 1.5–4 hours.",
         }
     ]
+
+
+def test_load_reformats_a_differently_punctuated_phone_number_into_the_mask(
+    qapp, tmp_path, monkeypatch
+):
+    # Regression test for a real bug: "* Phone"/"Broker Phone" are
+    # QLineEdits with an "(000) 000-0000;_" input mask (see
+    # _build_field_grid's "Phone" in key check), whose literal "(", ")",
+    # " ", "-" characters sit at FIXED positions. load_yaml's generic
+    # widget.setText(str(value)) fed a real-world value straight through
+    # -- a value punctuated differently than the mask (e.g. dashes in
+    # different positions, like "774-444-2014") got digits silently
+    # dropped rather than reformatted. Confirmed live: setText with
+    # "774-444-2014" on that mask produced "(774) -4442" (two digits
+    # lost). Stripping to digits-only before setText sidesteps the
+    # literal-position mismatch regardless of how the value was
+    # originally punctuated.
+    src_file = tmp_path / "phone.yaml"
+    with open(src_file, "w", encoding="utf-8") as f:
+        yaml.dump(
+            {"* Phone": "774-444-2014", "Broker Phone": "773-555-0100"},
+            f,
+            allow_unicode=True,
+            sort_keys=False,
+        )
+
+    form = YAMLForm()
+    monkeypatch.setattr(
+        QFileDialog, "getOpenFileName", lambda *a, **k: (str(src_file), "")
+    )
+    form.load_yaml()
+
+    assert form.inputs["* Phone"].text() == "(774) 444-2014"
+    assert form.inputs["Broker Phone"].text() == "(773) 555-0100"
+
+
+def test_load_reads_a_mask_formatted_phone_number_unchanged(qapp, tmp_path, monkeypatch):
+    src_file = tmp_path / "phone_exact.yaml"
+    with open(src_file, "w", encoding="utf-8") as f:
+        yaml.dump({"* Phone": "(214) 555-0100"}, f, allow_unicode=True, sort_keys=False)
+
+    form = YAMLForm()
+    monkeypatch.setattr(
+        QFileDialog, "getOpenFileName", lambda *a, **k: (str(src_file), "")
+    )
+    form.load_yaml()
+
+    assert form.inputs["* Phone"].text() == "(214) 555-0100"

@@ -39,7 +39,7 @@ from keyword_research_api import (
 # running instance is identifiable, unlike the old hardcoded "v4" (a
 # leftover UI-redesign label, not a real version, that stopped being
 # updated years before this was added).
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 README_PATH = Path(__file__).resolve().parent / "README.md"
 
@@ -111,9 +111,44 @@ def parse_faq_csv(rows: list) -> list:
     return faqs
 
 
-class _FaqTableWidget(QTableWidget):
-    """QTableWidget whose Enter/Return key advances Question -> Answer
-    (same row, opened for editing) or Answer -> a new row's Question.
+class _PercentColumnTableWidget(QTableWidget):
+    """QTableWidget whose columns are kept at fixed percentages of the
+    table's own width, recomputed whenever the table is resized or first
+    shown. Qt's built-in header resize modes can pin one column
+    (Stretch/setStretchLastSection) or let columns grow with user drags
+    (Interactive), but none of them can hold every column to a specific
+    percentage of the whole -- hence this override, used by
+    diagram_tier_accounts_table so "Tier"/"Cloud Account IDs"/
+    "Pick Accounts" keep a stable 15/70/15 split as the window resizes, and
+    by _FaqTableWidget below so Question/Answer stay a stable 50/50."""
+
+    def __init__(self, rows: int, column_percents: list, parent=None):
+        super().__init__(rows, len(column_percents), parent)
+        self._column_percents = column_percents
+        header = self.horizontalHeader()
+        for col in range(len(column_percents)):
+            header.setSectionResizeMode(col, QHeaderView.ResizeMode.Fixed)
+
+    def _apply_column_percents(self):
+        total_width = self.viewport().width()
+        if total_width <= 0:
+            return
+        for col, percent in enumerate(self._column_percents):
+            self.setColumnWidth(col, int(total_width * percent))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._apply_column_percents()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._apply_column_percents()
+
+
+class _FaqTableWidget(_PercentColumnTableWidget):
+    """_PercentColumnTableWidget (Question/Answer held at a stable 50/50
+    split) whose Enter/Return key also advances Question -> Answer (same
+    row, opened for editing) or Answer -> a new row's Question.
 
     Qt's own default for a plain Return/Enter press while editing a cell
     is to commit the edit and re-select the SAME cell without opening it
@@ -150,39 +185,6 @@ class _FaqTableWidget(QTableWidget):
                 self.setItem(next_row, 1, QTableWidgetItem(""))
             self.setCurrentCell(next_row, 0)
             self.editItem(self.item(next_row, 0))
-
-
-class _PercentColumnTableWidget(QTableWidget):
-    """QTableWidget whose columns are kept at fixed percentages of the
-    table's own width, recomputed whenever the table is resized or first
-    shown. Qt's built-in header resize modes can pin one column
-    (Stretch/setStretchLastSection) or let columns grow with user drags
-    (Interactive), but none of them can hold every column to a specific
-    percentage of the whole -- hence this override, used by
-    diagram_tier_accounts_table so "Tier"/"Cloud Account IDs"/
-    "Pick Accounts" keep a stable 15/70/15 split as the window resizes."""
-
-    def __init__(self, rows: int, column_percents: list, parent=None):
-        super().__init__(rows, len(column_percents), parent)
-        self._column_percents = column_percents
-        header = self.horizontalHeader()
-        for col in range(len(column_percents)):
-            header.setSectionResizeMode(col, QHeaderView.ResizeMode.Fixed)
-
-    def _apply_column_percents(self):
-        total_width = self.viewport().width()
-        if total_width <= 0:
-            return
-        for col, percent in enumerate(self._column_percents):
-            self.setColumnWidth(col, int(total_width * percent))
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._apply_column_percents()
-
-    def showEvent(self, event):
-        super().showEvent(event)
-        self._apply_column_percents()
 
 
 class _CloudAccountPickerDialog(QDialog):
@@ -390,8 +392,8 @@ class YAMLForm(QMainWindow):
     # one QGridLayout each, both to keep any one screen shorter and to
     # group genuinely related fields together -- see _build_field_grid.
     CLIENT_INFO_FIELDS = [
-        "* Client Name", "* Business Category", "* Phone", "Email", "* Website",
-        "Street Address", "City", "State", "ZIP", "Country",
+        "* Client Name", "Legal / Company Name", "* Business Category", "* Phone", "Email",
+        "* Website", "Street Address", "City", "State", "ZIP", "Country",
         "Broker Name", "Broker Website", "Broker Phone",
     ]
     CONTENT_FIELDS = [
@@ -408,7 +410,7 @@ class YAMLForm(QMainWindow):
         "YACSS Competitor URLs (one per line)", "YACSS Target URLs (one per line)",
         "YACSS Diagram Page Titles (one per line)", "YACSS Diagram Content",
         "YACSS Text Before Target Link", "YACSS Text Of Target Link",
-        "YACSS Text After Target Link",
+        "YACSS Text After Target Link", "YACSS Listicle Display Title",
     ]
     # Lives on the new "Keyword Research" tab (see _build_tabs), not the
     # YACSS Build tab, but still tracked through the generic self.inputs
@@ -517,6 +519,13 @@ class YAMLForm(QMainWindow):
 
         self.inputs = {
             "* Client Name": QLineEdit(),
+            # Optional -- distinct from "* Client Name" only when the
+            # client's real legal/entity name differs from the brand name
+            # used everywhere else (page titles, target link text). Feeds
+            # CloudStackJob.company.name specifically; falls back to
+            # "* Client Name" when left blank, so every existing client
+            # file is unaffected. See _build_cloud_stack_job.
+            "Legal / Company Name": QLineEdit(),
             "* Business Category": QLineEdit(),
             "* Phone": QLineEdit(),
             "Email": QLineEdit(),
@@ -608,14 +617,26 @@ class YAMLForm(QMainWindow):
             "YACSS Text Before Target Link": QLineEdit(),
             "YACSS Text Of Target Link": QLineEdit(),
             "YACSS Text After Target Link": QLineEdit(),
+            # Listicle-only, optional. A real published listicle (Royal
+            # Porta Johns' two septic-maintenance listicles) had its own
+            # distinct display title ("Best Septic Tank Maintenance
+            # Companies in Providence, RI") -- ListicleJob.name -- entirely
+            # unrelated to the client's own name, which _build_listicle_job
+            # had always forced job["name"] to equal. Falls back to
+            # "* Client Name" when left blank, so every existing client
+            # file is unaffected.
+            "YACSS Listicle Display Title": QLineEdit(),
             "YACSS Content Generation Mode": yacss_content_mode,
         }
 
-        # Placeholder hints for the YACSS fields only -- their valid values
-        # aren't self-evident the way "Phone" or "Email" are. Applied in the
-        # layout loops below rather than chained onto the dict literal above,
-        # to keep that dict a plain widget-per-key mapping.
+        # Placeholder hints -- mostly the YACSS fields, whose valid values
+        # aren't self-evident the way "Phone" or "Email" are, plus a couple
+        # of optional fields worth explaining why they're usually blank.
+        # Applied in the layout loops below rather than chained onto the
+        # dict literal above, to keep that dict a plain widget-per-key
+        # mapping.
         self.placeholders = {
+            "Legal / Company Name": "optional -- only if different from * Client Name (e.g. \"Acme Plumbing & Associates LLC\")",
             "YACSS Template": "e.g. porto-001",
             "YACSS Bucket Keyword": "themed micro-site name -- becomes the real cloud bucket name",
             "YACSS Topic Keyword": "e.g. best coffee shops in Austin -- the listicle/masspage subject",
@@ -635,6 +656,7 @@ class YAMLForm(QMainWindow):
             "YACSS Text Before Target Link": "e.g. Visit",
             "YACSS Text Of Target Link": "e.g. Acme Plumbing",
             "YACSS Text After Target Link": "e.g. to learn more about emergency plumbing in Dallas",
+            "YACSS Listicle Display Title": "optional -- only if different from * Client Name (e.g. \"Best Plumbers in Dallas, TX\")",
         }
 
         self.menu_bar = QMenuBar()
@@ -644,6 +666,8 @@ class YAMLForm(QMainWindow):
         help_menu.addAction("How to Use", self.show_usage)
         file_menu = QMenu("File", self)
         file_menu.addAction("Open YAML", self.load_yaml)
+        file_menu.addSeparator()
+        file_menu.addAction("Exit", self.close)
         self.menu_bar.addMenu(file_menu)
         self.menu_bar.addMenu(help_menu)
 
@@ -711,9 +735,8 @@ class YAMLForm(QMainWindow):
         # position; Manual mode (faq_auto=2, no AI credits spent) needs both
         # filled in per question. A two-column table matches that shape
         # directly, one row per FAQ.
-        self.faq_table = _FaqTableWidget(0, 2)
+        self.faq_table = _FaqTableWidget(0, [0.5, 0.5])
         self.faq_table.setHorizontalHeaderLabels(["Question", "Answer"])
-        self.faq_table.horizontalHeader().setStretchLastSection(True)
         self.faq_table.setFont(QFont("Arial", self.font_size))
         self.faq_table.setFixedHeight(150)
         self.faq_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -739,13 +762,10 @@ class YAMLForm(QMainWindow):
         self.save_button.clicked.connect(self.save_yaml)
         ThemeManager.apply_button_style(self.save_button, "success")
 
-        # Diagram-only for now (see export_job_json's own doc comment) --
-        # Listicle/Masspage_Silo_Local export isn't built yet (missing
-        # fields: a Listicle-specific target keyword, brand/competitor
-        # info; page_titles/content are shared with Diagram and already
-        # exist above, so those two types are closer once their own
-        # export path is added).
-        self.export_job_button = QPushButton("Export Job JSON (Diagram only)")
+        # export_job_json() dispatches on YACSS Build Type -- all three
+        # (Diagram/Listicle/Masspage_Silo_Local) are supported; see that
+        # method's own doc comment.
+        self.export_job_button = QPushButton("Export Job JSON")
         self.export_job_button.clicked.connect(self.export_job_json)
         ThemeManager.apply_button_style(self.export_job_button, "export")
 
@@ -1142,6 +1162,7 @@ class YAMLForm(QMainWindow):
             "YACSS Brand Position",
             "YACSS Competitor URLs (one per line)",
             "YACSS Target URLs (one per line)",
+            "YACSS Listicle Display Title",
         ):
             self.labels[key].setVisible(is_listicle)
             self.inputs[key].setVisible(is_listicle)
@@ -1749,6 +1770,11 @@ class YAMLForm(QMainWindow):
         confirmed-live fields (rr_yacss_factory's yacss-content-image-fix
         memory) that this export path had simply never read before,
         despite Hero Image URL already existing as a form field.
+        company["name"] defaults to "* Client Name" but prefers "Legal /
+        Company Name" when filled in -- a real client (Kilday Baxter) had
+        a distinct legal entity name ("Kilday Baxter & Associates") from
+        the brand name used everywhere else (page titles, target link
+        text), which this method used to flatten to a single value.
         """
         warnings = []
 
@@ -1812,7 +1838,7 @@ class YAMLForm(QMainWindow):
             warnings.append("YACSS Diagram Content is blank")
 
         company = {
-            "name": self.inputs["* Client Name"].text(),
+            "name": self.inputs["Legal / Company Name"].text().strip() or client_name,
             "address": self.inputs["Street Address"].text(),
             "city": self.inputs["City"].text(),
             "state": self.inputs["State"].text(),
@@ -1881,7 +1907,12 @@ class YAMLForm(QMainWindow):
         user actually filled it in, same as cloud_stack's FAQ
         extra_fields; brand itself requires BOTH name and url once used
         (brandPlacementSchema), so a partial entry (only one of the two)
-        warns rather than silently sending an incomplete/rejected object."""
+        warns rather than silently sending an incomplete/rejected object.
+        job["name"] defaults to "* Client Name" but prefers "YACSS Listicle
+        Display Title" when filled in -- a real published listicle (Royal
+        Porta Johns' two septic-maintenance listicles) had its own display
+        title entirely unrelated to the client's own name, which this
+        method used to force job["name"] to always equal."""
         warnings = []
 
         def require(value: str, label: str):
@@ -1889,6 +1920,7 @@ class YAMLForm(QMainWindow):
                 warnings.append(f"{label} is blank")
 
         client_name = self.inputs["* Client Name"].text()
+        display_title = self.inputs["YACSS Listicle Display Title"].text().strip() or client_name
         topic_keyword = self.inputs["YACSS Topic Keyword"].text()
         lsi_keyword = self.inputs["YACSS Bucket Keyword"].text()
         template = self.inputs["YACSS Template"].currentText()
@@ -1933,7 +1965,7 @@ class YAMLForm(QMainWindow):
             "job_id": f"{self._slugify(client_name)}-listicle" if client_name.strip() else "listicle-job",
             "type": "listicle",
             "keyword": topic_keyword,
-            "name": client_name,
+            "name": display_title,
             "template": template,
             "ai_platform": ai_platform,
             "ai_model": ai_model,
@@ -2223,6 +2255,20 @@ class YAMLForm(QMainWindow):
                     else:
                         widget.setCurrentIndex(0)
                 else:
+                    # Phone fields carry an input mask ("(000) 000-0000;_",
+                    # set in _build_field_grid) that expects its own literal
+                    # "(", ")", " ", "-" characters at fixed positions.
+                    # setText() with a differently-punctuated real-world
+                    # value (e.g. "774-444-2014", whose dash lands where the
+                    # mask expects ")" then " ") silently drops digits --
+                    # confirmed live: it loads as "(774) -4442", not
+                    # "(774) 444-2014". Stripping to digits-only first lets
+                    # the mask place every digit correctly regardless of how
+                    # the source YAML happened to punctuate it -- a raw
+                    # 10-digit string round-trips through the mask cleanly
+                    # (verified: setText("7744442014") -> "(774) 444-2014").
+                    if "Phone" in key and value:
+                        value = re.sub(r"\D", "", str(value))
                     widget.setText(str(value))
             self._load_cloud_account_ids(data.get("YACSS Cloud Account IDs (comma separated)", ""))
             self._load_faq_rows(data)

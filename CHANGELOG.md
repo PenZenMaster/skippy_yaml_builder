@@ -3,6 +3,54 @@
 All notable changes to this project are documented in this file. Format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.0] - 2026-09-06
+
+### Added
+
+- **File > Exit** menu item, alongside the existing **File > Open YAML**.
+- **`Legal / Company Name`** (Client Info tab, optional) and **`YACSS
+  Listicle Display Title`** (YACSS Build tab, optional): both fall back to
+  `* Client Name` when left blank, so every existing client file exports
+  identically to before. Fixes two real, live-observed cases where a
+  single "client name" field wasn't enough: `CloudStackJob.company.name`
+  sometimes needs to be the client's legal entity name rather than the
+  brand name used everywhere else (a real client, Kilday Baxter, has
+  "Kilday Baxter & Associates" as its legal name); `ListicleJob.name`
+  sometimes needs to be the listicle's own display title, unrelated to the
+  client's name at all (two real published listicles, Royal Porta Johns'
+  septic-maintenance ones, are titled "Best Septic Tank Maintenance
+  Companies in \<City\>, RI").
+- README.md (also the in-app Help -> How to Use text) rewritten as a real,
+  current user manual/SOP: documented the Keyword Research tab, `YACSS
+  Content Generation Mode`, and the required Diagram target-link-text
+  fields (all previously shipped but undocumented), and corrected several
+  stale claims -- Export Job JSON now covers all three build types, not
+  Diagram only; Hero Image URL/Content Image URL are wired into a Diagram
+  export, not inert.
+
+### Fixed
+
+- **FAQ tab's Question/Answer columns** now hold a stable 50/50 width
+  split (via the same `_PercentColumnTableWidget` pattern already used by
+  the Diagram tier-accounts table), replacing `setStretchLastSection`
+  (Question kept its default width, Answer took 100% of the remainder --
+  not an even split).
+- Removed a stale "(Diagram only)" label from the Export Job JSON button
+  and a stale doc comment claiming Listicle/Masspage_Silo_Local export
+  "isn't built yet" -- both job types have been fully supported by
+  `export_job_json`'s dispatch table since it was added; only the label
+  and comment had drifted.
+- **`load_yaml` silently dropped digits from phone numbers.** A real
+  client file (Royal Porta Johns) surfaced it live: `* Phone`/`Broker
+  Phone` carry an input mask (`(000) 000-0000;_`) expecting its own
+  literal `(`/`)`/` `/`-` at fixed positions, and `setText()` with a
+  differently-punctuated value (e.g. `"774-444-2014"`, whose dash lands
+  where the mask expects `)` then a space) silently dropped digits --
+  loaded as `"(774) -4442"`, not `"(774) 444-2014"`. Fixed by stripping to
+  digits-only before `setText()` when loading a phone field; a raw
+  10-digit string round-trips through the mask cleanly regardless of how
+  the source YAML punctuated it.
+
 ## [0.5.0] - 2026-09-05
 
 ### Added
