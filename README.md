@@ -141,6 +141,46 @@ Diagram Page Titles` for a Diagram build (see "Basic workflow" above).
    YACSS Build Tab** to write them into `YACSS Diagram Page Titles` --
    confirms first if that field already has content.
 
+### Content Silo tab
+A separate content pipeline for the client's OWN website, unrelated to any
+YACSS job type -- generates real landing-page-depth content (title, meta
+description, intro, body, optional FAQs, plain prose, no spintax) for a
+services/products silo: a Services/Category page linking out to individual
+Service pages. This tab's own state (seed, discovered categories/services,
+generated content) is NOT part of the saved client YAML -- it never
+touches Save YAML/Open YAML/Export Job JSON.
+
+1. Fill in **Silo Seed Keyword** (the silo's overall topic, e.g. "garage
+   door services") and click **Find Categories** -- calls the same
+   DataForSEO clustering the Keyword Research tab uses (including its
+   off-target-location flagging from Client Info's State/Target Cities) to
+   discover the top-level categories.
+2. Check the category rows you want, then click **Find Services for
+   Selected Categories** -- re-runs clustering seeded by each checked
+   category's own title to discover the services within it. Re-running
+   this always rebuilds the whole services table from whichever categories
+   are currently checked, rather than appending -- unchecking a category
+   and re-running removes its stale rows.
+3. Check whichever category and/or service rows you want actual pages for,
+   then click **Generate Content**. A checked category becomes its own
+   silo-landing page (its content naturally references every service
+   discovered under it, whether or not that service is ALSO checked for
+   its own page); a checked service becomes its own leaf page. One page
+   failing does not stop the rest -- every attempted page's result is
+   kept, and a single combined warning names whichever ones failed.
+4. **Export Silo** writes one Markdown file per successfully-generated
+   page to a folder you choose: category pages at the root
+   (`<category-slug>.md`), service pages nested under their own category's
+   slug folder (`<category-slug>/<service-slug>.md`) -- reproducing the
+   real silo structure -- plus a `_silo_structure.md` index linking
+   everything. A page that failed to generate is skipped, not exported
+   with blank content.
+
+Uses the same `OPENAI_API_KEY` (`cloud-stack-generator`'s own `.env`) as
+the Diagram "Generate with AI" buttons -- if that's not configured, an
+"AI Not Available" warning tells you where to set it before Generate
+Content will run.
+
 ### YACSS Content Generation Mode
 Controls how a Diagram build's page content is generated:
 - **Cheap (spun template, current default)** -- one authored

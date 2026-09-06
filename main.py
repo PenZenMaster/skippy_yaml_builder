@@ -33,13 +33,18 @@ from keyword_research_api import (
     local_location_tokens,
     KeywordResearchError,
 )
+from silo_content_generator import (
+    generate_service_page_content,
+    is_available as silo_content_is_available,
+    AiContentError as SiloContentError,
+)
 
 # Bumped by hand alongside CHANGELOG.md -- see that file for what changed
 # at each version. Shown in the window title and the About dialog so a
 # running instance is identifiable, unlike the old hardcoded "v4" (a
 # leftover UI-redesign label, not a real version, that stopped being
 # updated years before this was added).
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 README_PATH = Path(__file__).resolve().parent / "README.md"
 
@@ -808,6 +813,64 @@ class YAMLForm(QMainWindow):
         self.keyword_research_send_button.clicked.connect(self._send_selected_titles_to_build_tab)
         ThemeManager.apply_button_style(self.keyword_research_send_button, "success")
 
+        # Content Silo tab: generates real, landing-page-depth content for a
+        # client's services/products silo (a Services/Category page linking
+        # to individual Service pages), auto-discovering both levels via
+        # keyword_research_api.fetch_clusters (see _run_silo_category_research/
+        # _run_silo_service_research) and generating content per selected
+        # page via silo_content_generator.generate_service_page_content (see
+        # _generate_silo_content), exported as Markdown files (see
+        # _export_silo). Entirely independent of the YACSS job pipeline --
+        # this tab's own state (seed, discovered categories/services,
+        # generated content) is deliberately NOT part of self.inputs/
+        # save_yaml/load_yaml, same reasoning self.faq_table/self.city_data
+        # already follow (see _build_tabs' own doc comment on that
+        # contract).
+        self.silo_pages = []
+
+        self.silo_seed_input = QLineEdit()
+        self.silo_seed_input.setFont(QFont("Arial", self.font_size))
+        self.silo_seed_input.setPlaceholderText(
+            "e.g. garage door services -- the overall silo topic"
+        )
+        self.silo_find_categories_button = QPushButton("Find Categories")
+        self.silo_find_categories_button.setFont(QFont("Arial", self.font_size))
+        self.silo_find_categories_button.clicked.connect(self._run_silo_category_research)
+        ThemeManager.apply_button_style(self.silo_find_categories_button, "export")
+
+        self.silo_categories_table = QTableWidget(0, 5)
+        self.silo_categories_table.setHorizontalHeaderLabels(
+            ["Use?", "Candidate Category Title", "Monthly Volume", "Flagged", "Sample Keywords"]
+        )
+        self.silo_categories_table.horizontalHeader().setStretchLastSection(True)
+        self.silo_categories_table.setFont(QFont("Arial", self.font_size))
+        self.silo_categories_table.setFixedHeight(220)
+        self.silo_categories_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+
+        self.silo_find_services_button = QPushButton("Find Services for Selected Categories")
+        self.silo_find_services_button.setFont(QFont("Arial", self.font_size))
+        self.silo_find_services_button.clicked.connect(self._run_silo_service_research)
+        ThemeManager.apply_button_style(self.silo_find_services_button, "export")
+
+        self.silo_services_table = QTableWidget(0, 6)
+        self.silo_services_table.setHorizontalHeaderLabels(
+            ["Use?", "Category", "Candidate Service Title", "Monthly Volume", "Flagged", "Sample Keywords"]
+        )
+        self.silo_services_table.horizontalHeader().setStretchLastSection(True)
+        self.silo_services_table.setFont(QFont("Arial", self.font_size))
+        self.silo_services_table.setFixedHeight(220)
+        self.silo_services_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+
+        self.silo_generate_content_button = QPushButton("Generate Content")
+        self.silo_generate_content_button.setFont(QFont("Arial", self.font_size))
+        self.silo_generate_content_button.clicked.connect(self._generate_silo_content)
+        ThemeManager.apply_button_style(self.silo_generate_content_button, "success")
+
+        self.silo_export_button = QPushButton("Export Silo")
+        self.silo_export_button.setFont(QFont("Arial", self.font_size))
+        self.silo_export_button.clicked.connect(self._export_silo)
+        ThemeManager.apply_button_style(self.silo_export_button, "export")
+
         self._build_tabs()
 
         # Buttons live in QHBoxLayout rows with addStretch() (see
@@ -960,6 +1023,31 @@ class YAMLForm(QMainWindow):
         keyword_research_layout.addStretch()
         keyword_research_tab.setLayout(keyword_research_layout)
         self.main_tabs.addTab(keyword_research_tab, "Keyword Research")
+
+        silo_tab = QWidget()
+        silo_layout = QVBoxLayout()
+        silo_layout.addWidget(QLabel("Silo Seed Keyword:"))
+        silo_layout.addWidget(self.silo_seed_input)
+        silo_categories_row = QHBoxLayout()
+        silo_categories_row.addWidget(self.silo_find_categories_button)
+        silo_categories_row.addStretch()
+        silo_layout.addLayout(silo_categories_row)
+        silo_layout.addWidget(QLabel("Categories:"))
+        silo_layout.addWidget(self.silo_categories_table)
+        silo_services_row = QHBoxLayout()
+        silo_services_row.addWidget(self.silo_find_services_button)
+        silo_services_row.addStretch()
+        silo_layout.addLayout(silo_services_row)
+        silo_layout.addWidget(QLabel("Services:"))
+        silo_layout.addWidget(self.silo_services_table)
+        silo_actions_row = QHBoxLayout()
+        silo_actions_row.addWidget(self.silo_generate_content_button)
+        silo_actions_row.addWidget(self.silo_export_button)
+        silo_actions_row.addStretch()
+        silo_layout.addLayout(silo_actions_row)
+        silo_layout.addStretch()
+        silo_tab.setLayout(silo_layout)
+        self.main_tabs.addTab(silo_tab, "Content Silo")
 
     def _populate_live_dropdowns(self):
         """Fetches templates/cloud accounts/AI providers/AI models from the
@@ -1605,6 +1693,346 @@ class YAMLForm(QMainWindow):
                 return
 
         page_titles_field.setPlainText("\n".join(titles))
+
+    def _silo_local_location_tokens(self) -> set:
+        """Shared by both Content Silo research handlers -- same
+        State/Target Cities-derived pattern _run_keyword_research already
+        uses for its own off-target-location flag."""
+        target_cities = [
+            line
+            for line in self.inputs["* Target Cities (one per line)"].toPlainText().splitlines()
+            if line.strip()
+        ]
+        return local_location_tokens(self.inputs["State"].text(), target_cities)
+
+    def _populate_silo_cluster_row(self, table, row: int, cluster: dict, extra_columns: list):
+        """Fills one row of either silo table with the columns common to
+        both (a checkable Use? box, then whatever extra_columns come before
+        it -- just Candidate Title for categories, Category + Candidate
+        Title for services -- then Volume/Flagged/Sample Keywords), mirroring
+        _populate_keyword_research_table's own per-row shape so all three
+        cluster-results tables in this app read consistently."""
+        checkbox_item = QTableWidgetItem()
+        checkbox_item.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+        checkbox_item.setCheckState(Qt.CheckState.Unchecked)
+        table.setItem(row, 0, checkbox_item)
+
+        col = 1
+        for value in extra_columns:
+            item = QTableWidgetItem(value)
+            item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            table.setItem(row, col, item)
+            col += 1
+
+        volume_item = QTableWidgetItem(f"{cluster['total_search_volume']:,}")
+        volume_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+        table.setItem(row, col, volume_item)
+        col += 1
+
+        flagged = cluster["candidate_page_title_flagged"]
+        flag_reason = cluster.get("candidate_page_title_flag_reason") or ""
+        flagged_item = QTableWidgetItem(flag_reason.upper() if flagged else "")
+        flagged_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+        if flagged:
+            flagged_item.setForeground(Qt.GlobalColor.red)
+        table.setItem(row, col, flagged_item)
+        col += 1
+
+        sample_keywords = ", ".join(kw["keyword"] for kw in cluster["keywords"][:5])
+        sample_item = QTableWidgetItem(sample_keywords)
+        sample_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+        table.setItem(row, col, sample_item)
+
+    def _run_silo_category_research(self):
+        """"Find Categories" button handler: seeds keyword_research_api.
+        fetch_clusters with the silo's own overall topic (Silo Seed
+        Keyword) to discover the top level of the Category -> Service
+        silo structure. Replaces any prior categories-table results rather
+        than appending -- same reasoning as _run_keyword_research's own
+        results table, a stale prior run's rows would otherwise mix with
+        a new seed's results."""
+        seed = self.silo_seed_input.text().strip()
+        if not seed:
+            QMessageBox.warning(
+                self, "No seed keyword", "Fill in Silo Seed Keyword first."
+            )
+            return
+
+        local_tokens = self._silo_local_location_tokens()
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        self.setEnabled(False)
+        try:
+            clusters = fetch_clusters([seed], local_tokens)
+        except KeywordResearchError as exc:
+            QMessageBox.critical(self, "Category research failed", str(exc))
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+            self.setEnabled(True)
+
+        table = self.silo_categories_table
+        table.setRowCount(len(clusters))
+        for row, cluster in enumerate(clusters):
+            self._populate_silo_cluster_row(table, row, cluster, [cluster["candidate_page_title"]])
+
+    def _run_silo_service_research(self):
+        """"Find Services for Selected Categories" button handler: for each
+        CHECKED category row, re-seeds fetch_clusters with that category's
+        own candidate title to discover the services within it -- the
+        second pass of the two-level silo discovery. Clears the WHOLE
+        services table on every run and rebuilds it from whichever
+        categories are currently checked, rather than appending -- without
+        this, unchecking a category and re-running would leave that
+        category's stale service rows behind alongside the new ones."""
+        checked_categories = [
+            self.silo_categories_table.item(row, 1).text()
+            for row in range(self.silo_categories_table.rowCount())
+            if self.silo_categories_table.item(row, 0)
+            and self.silo_categories_table.item(row, 0).checkState() == Qt.CheckState.Checked
+        ]
+        if not checked_categories:
+            QMessageBox.warning(
+                self,
+                "No categories selected",
+                "Check at least one category in the Categories table first.",
+            )
+            return
+
+        local_tokens = self._silo_local_location_tokens()
+        table = self.silo_services_table
+        table.setRowCount(0)
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        self.setEnabled(False)
+        try:
+            for category in checked_categories:
+                clusters = fetch_clusters([category], local_tokens)
+                for cluster in clusters:
+                    row = table.rowCount()
+                    table.insertRow(row)
+                    self._populate_silo_cluster_row(
+                        table, row, cluster, [category, cluster["candidate_page_title"]]
+                    )
+        except KeywordResearchError as exc:
+            QMessageBox.critical(self, "Service research failed", str(exc))
+        finally:
+            QApplication.restoreOverrideCursor()
+            self.setEnabled(True)
+
+    def _generate_silo_content(self):
+        """"Generate Content" button handler: calls
+        silo_content_generator.generate_service_page_content once per
+        CHECKED row across both tables (a checked category becomes its own
+        silo-landing page; a checked service becomes its own leaf page),
+        collecting every result (success or failure) into self.silo_pages
+        for _export_silo to consume. One page's failure does not abort the
+        rest -- same "collect and report every issue, let the user decide"
+        philosophy _build_cloud_stack_job's own warnings list already
+        follows in this file -- a single combined warning names every
+        failed page once every row has been attempted."""
+        if not silo_content_is_available():
+            QMessageBox.warning(
+                self,
+                "AI Not Available",
+                "Content generation is not available. Set OPENAI_API_KEY "
+                "in cloud-stack-generator's .env (../cloud-stack-generator/.env) "
+                "to enable this feature.",
+            )
+            return
+
+        checked_categories = [
+            self.silo_categories_table.item(row, 1).text()
+            for row in range(self.silo_categories_table.rowCount())
+            if self.silo_categories_table.item(row, 0)
+            and self.silo_categories_table.item(row, 0).checkState() == Qt.CheckState.Checked
+        ]
+        checked_services = [
+            (
+                self.silo_services_table.item(row, 1).text(),
+                self.silo_services_table.item(row, 2).text(),
+            )
+            for row in range(self.silo_services_table.rowCount())
+            if self.silo_services_table.item(row, 0)
+            and self.silo_services_table.item(row, 0).checkState() == Qt.CheckState.Checked
+        ]
+        if not checked_categories and not checked_services:
+            QMessageBox.warning(
+                self,
+                "Nothing selected",
+                "Check at least one category or service to generate content for.",
+            )
+            return
+
+        # Every service currently listed under a category (regardless of
+        # that service's own checked state) is real, discovered content
+        # for that category -- a category page's own content should
+        # gesture at all of them, not just whichever ones the operator
+        # also wants as standalone leaf pages.
+        services_by_category: dict = {}
+        for row in range(self.silo_services_table.rowCount()):
+            category = self.silo_services_table.item(row, 1).text()
+            title = self.silo_services_table.item(row, 2).text()
+            services_by_category.setdefault(category, []).append(title)
+
+        business_name = self.inputs["* Client Name"].text().strip()
+        business_category = self.inputs["* Business Category"].text().strip()
+        target_cities = [
+            line
+            for line in self.inputs["* Target Cities (one per line)"].toPlainText().splitlines()
+            if line.strip()
+        ]
+        silo_topic = self.silo_seed_input.text().strip()
+
+        self.silo_pages = []
+        failures = []
+
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        self.setEnabled(False)
+        try:
+            for category_title in checked_categories:
+                children = services_by_category.get(category_title, [])
+                page = {
+                    "kind": "category",
+                    "category": category_title,
+                    "title": category_title,
+                    "children": children,
+                    "content": None,
+                    "error": None,
+                }
+                try:
+                    page["content"] = generate_service_page_content(
+                        business_name=business_name,
+                        business_category=business_category,
+                        target_cities=target_cities,
+                        page_topic=category_title,
+                        page_kind="category",
+                        silo_topic=silo_topic,
+                        child_topics=children,
+                    )
+                except SiloContentError as exc:
+                    page["error"] = str(exc)
+                    failures.append(category_title)
+                self.silo_pages.append(page)
+
+            for category_title, service_title in checked_services:
+                page = {
+                    "kind": "service",
+                    "category": category_title,
+                    "title": service_title,
+                    "children": [],
+                    "content": None,
+                    "error": None,
+                }
+                try:
+                    page["content"] = generate_service_page_content(
+                        business_name=business_name,
+                        business_category=business_category,
+                        target_cities=target_cities,
+                        page_topic=service_title,
+                        page_kind="service",
+                        silo_topic=category_title,
+                    )
+                except SiloContentError as exc:
+                    page["error"] = str(exc)
+                    failures.append(service_title)
+                self.silo_pages.append(page)
+        finally:
+            QApplication.restoreOverrideCursor()
+            self.setEnabled(True)
+
+        if failures:
+            QMessageBox.warning(
+                self,
+                "Some pages failed",
+                "The following page(s) failed to generate (see each page's "
+                "own error when exporting):\n\n" + "\n".join(f"- {f}" for f in failures),
+            )
+
+    @staticmethod
+    def _render_silo_page_markdown(content: dict) -> str:
+        """Renders one generated silo page's content dict (title/
+        meta_description/intro/body/faqs, see
+        silo_content_generator.generate_service_page_content's own return
+        shape) as clean, publish-ready Markdown -- meant to be pasted
+        directly into a real page, not further processed."""
+        parts = [f"# {content['title']}", "", f"> {content['meta_description']}", ""]
+        if content.get("intro"):
+            parts.append(content["intro"])
+            parts.append("")
+        parts.append(content["body"])
+        faqs = content.get("faqs") or []
+        if faqs:
+            parts.append("")
+            parts.append("## FAQ")
+            parts.append("")
+            for faq in faqs:
+                parts.append(f"**{faq['question']}**")
+                parts.append(faq["answer"])
+                parts.append("")
+        return "\n".join(parts).rstrip() + "\n"
+
+    def _export_silo(self):
+        """"Export Silo" button handler: writes one Markdown file per
+        successfully-generated page (self.silo_pages entries with
+        content is not None -- a failed page is skipped, not exported with
+        blank content) plus one top-level _silo_structure.md index.
+        Category pages land at the chosen folder's root
+        (<category-slug>.md); service pages nest under their own
+        category's slug folder (<category-slug>/<service-slug>.md),
+        reproducing the real Category -> Service silo directory structure
+        this feature was built for."""
+        exportable = [p for p in self.silo_pages if p.get("content") is not None]
+        if not exportable:
+            QMessageBox.warning(
+                self,
+                "Nothing to export",
+                "No pages have generated content to export -- run Generate "
+                "Content first (or check for failures on prior pages).",
+            )
+            return
+
+        folder = QFileDialog.getExistingDirectory(self, "Export Content Silo")
+        if not folder:
+            return
+        folder_path = Path(folder)
+
+        written = []
+        for page in exportable:
+            slug = self._slugify(page["title"]) or "page"
+            if page["kind"] == "category":
+                file_path = folder_path / f"{slug}.md"
+            else:
+                category_slug = self._slugify(page["category"]) or "category"
+                file_path = folder_path / category_slug / f"{slug}.md"
+                file_path.parent.mkdir(parents=True, exist_ok=True)
+            file_path.write_text(
+                self._render_silo_page_markdown(page["content"]), encoding="utf-8"
+            )
+            written.append((page, file_path))
+
+        index_lines = ["# Content Silo Structure", ""]
+        for page, file_path in written:
+            if page["kind"] != "category":
+                continue
+            relative = file_path.relative_to(folder_path).as_posix()
+            index_lines.append(f"- [{page['title']}]({relative})")
+            for service_page, service_file_path in written:
+                if service_page["kind"] == "service" and service_page["category"] == page["title"]:
+                    service_relative = service_file_path.relative_to(folder_path).as_posix()
+                    index_lines.append(f"  - [{service_page['title']}]({service_relative})")
+        # Any service page whose own category was never itself exported
+        # (checked as a service without also checking its category) still
+        # belongs in the index -- listed flat rather than silently omitted.
+        indexed_titles = {p["title"] for p, _ in written if p["kind"] == "category"}
+        for page, file_path in written:
+            if page["kind"] == "service" and page["category"] not in indexed_titles:
+                relative = file_path.relative_to(folder_path).as_posix()
+                index_lines.append(f"- [{page['title']}]({relative})")
+        index_path = folder_path / "_silo_structure.md"
+        index_path.write_text("\n".join(index_lines) + "\n", encoding="utf-8")
+
+        QMessageBox.information(
+            self, "Exported", f"Wrote {len(written)} page(s) to:\n{folder}"
+        )
 
     def _check_ai_generation_available(self) -> bool:
         """Shared guard for both "Generate with AI" handlers: a configured

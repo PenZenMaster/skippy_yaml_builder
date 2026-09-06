@@ -3,6 +3,33 @@
 All notable changes to this project are documented in this file. Format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.0] - 2026-09-06
+
+### Added
+
+- **New "Content Silo" tab**: generates real, landing-page-depth content
+  (title, meta description, intro, body, optional FAQs -- plain prose, no
+  spintax) for a client's OWN services/products silo (a Services/Category
+  page linking to individual Service pages), independent of any YACSS job
+  type. Both levels of the Category -> Service hierarchy are auto-
+  discovered via two passes of the existing `keyword_research_api.
+  fetch_clusters` (first seeded by the silo's own topic to find
+  categories, then re-seeded per checked category to find the services
+  within it) -- reuses the Keyword Research tab's own off-target-location
+  flagging (client State/Target Cities) and results-table UX. **Generate
+  Content** calls the new `silo_content_generator.generate_service_page_
+  content` once per checked category/service row, continuing past a
+  single page's failure and reporting every failure in one combined
+  warning rather than aborting the batch. **Export Silo** writes one
+  Markdown file per successfully-generated page to a chosen folder,
+  reproducing the real silo directory structure
+  (`<category-slug>.md` at the root, `<category-slug>/<service-slug>.md`
+  per service) plus a `_silo_structure.md` index. This tab's own state is
+  deliberately excluded from `self.inputs`/`save_yaml`/`load_yaml` -- it
+  is not part of the client YAML/YACSS job contract at all, same as
+  `self.faq_table`/`self.city_data` already are for their own reasons.
+  16/16 new UI tests passing; full suite 163/163.
+
 ## [0.6.0] - 2026-09-06
 
 ### Added
