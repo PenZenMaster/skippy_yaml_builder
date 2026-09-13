@@ -31,7 +31,7 @@ Created Date:
 2026-09-05
 
 Last Modified Date:
-2026-09-05
+2026-09-13
 
 Comments:
 - v1.00 Initial implementation, ported from
@@ -48,6 +48,14 @@ Comments:
   silently dropped), not filtered out entirely. This is a change from the
   TS prototype this module was ported from (which has no client-profile
   concept at all) -- the two are now intentionally divergent here.
+- v1.02 Added fetch_people_also_ask, backing the FAQ tab's "Generate FAQs
+  from People Also Ask" button: a real Google SERP call (DataForSEO's
+  serp/google/organic/live/advanced endpoint), not DataForSEO Labs like
+  every other function in this file -- same host/auth, same _post_task
+  helper, different path. Only the PAA question text is pulled (no
+  people_also_ask_click_depth expansion of DataForSEO's own snippet
+  answers) -- ai_content_generator.generate_faq_answers writes the actual
+  answers, tailored to the client, rather than trusting Google's snippet.
 """
 
 from pathlib import Path
@@ -61,6 +69,12 @@ LANGUAGE_NAME = "English"
 RELATED_KEYWORDS_DEPTH = 2
 MAX_KEYWORDS_FOR_INTENT = 50
 MAX_CLUSTERS = 12
+
+# Hard ceiling on one "Generate FAQs from People Also Ask" click, per the
+# feature request -- keeps a single click's OpenAI cost (one answer-
+# generation call per question, see ai_content_generator.
+# generate_faq_answers) bounded and predictable.
+MAX_PAA_QUESTIONS = 10
 
 # Sibling project layout assumed, same as yacss_api.py's RR_YACSS_FACTORY_ENV.
 RR_YACSS_FACTORY_ENV = Path(__file__).resolve().parent.parent / "rr_yacss_factory" / ".env"
@@ -335,6 +349,44 @@ def fetch_search_intents(keywords: list[str]) -> dict[str, str]:
         intent = item.get("keyword_intent") or {}
         intent_by_keyword[item["keyword"]] = intent.get("label") or "unknown"
     return intent_by_keyword
+
+
+def fetch_people_also_ask(seed: str, max_questions: int = MAX_PAA_QUESTIONS) -> list[str]:
+    """Returns up to `max_questions` real Google "People Also Ask"
+    questions for `seed`, via DataForSEO's SERP API (serp/google/organic/
+    live/advanced) -- a genuinely different DataForSEO product from every
+    other function in this file (DataForSEO Labs), reached through the
+    same host/auth/_post_task plumbing. No people_also_ask_click_depth is
+    requested: only the question text is needed here, not DataForSEO's
+    own scraped answer snippet (see ai_content_generator.
+    generate_faq_answers for where the real answer comes from), so the
+    cheaper default-depth call is enough.
+
+    Order is whatever Google/DataForSEO returned (already relevance-
+    ranked); duplicates are dropped. Returns an empty list -- not an
+    error -- if Google shows no PAA box for this seed at all, same
+    "real data gap, not a bug" reasoning as fetch_related_keywords.
+    """
+    max_questions = max(1, min(max_questions, MAX_PAA_QUESTIONS))
+    results = _post_task(
+        "/serp/google/organic/live/advanced",
+        {
+            "keyword": seed,
+            "language_code": "en",
+            "location_code": LOCATION_CODE,
+            "device": "desktop",
+        },
+    )
+    items = (results[0].get("items") or []) if results else []
+    questions: list[str] = []
+    for item in items:
+        if item.get("type") != "people_also_ask":
+            continue
+        for paa_item in item.get("items") or []:
+            question = (paa_item.get("title") or "").strip()
+            if question and question not in questions:
+                questions.append(question)
+    return questions[:max_questions]
 
 
 def _title_case(text: str) -> str:

@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QTextEdit, QPushButton,
     QFileDialog, QMessageBox, QMenuBar, QMainWindow, QMenu, QListWidget, QListWidgetItem, QGridLayout,
     QScrollArea, QComboBox, QTableWidget, QTableWidgetItem, QAbstractItemView, QAbstractItemDelegate,
-    QDialog, QTextBrowser, QTabWidget, QProgressBar, QHeaderView
+    QDialog, QTextBrowser, QTabWidget, QProgressBar, QHeaderView, QSpinBox, QCheckBox
 )
 from PyQt6.QtGui import QFont
 from PyQt6.QtCore import Qt
@@ -25,13 +25,16 @@ from yacss_api import (
 from ai_content_generator import (
     generate_diagram_page_titles,
     generate_diagram_content,
+    generate_faq_answers,
     is_available as ai_content_is_available,
     AiContentError,
 )
 from keyword_research_api import (
     fetch_clusters,
+    fetch_people_also_ask,
     local_location_tokens,
     KeywordResearchError,
+    MAX_PAA_QUESTIONS,
 )
 from silo_content_generator import (
     generate_service_page_content,
@@ -44,7 +47,7 @@ from silo_content_generator import (
 # running instance is identifiable, unlike the old hardcoded "v4" (a
 # leftover UI-redesign label, not a real version, that stopped being
 # updated years before this was added).
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 
 README_PATH = Path(__file__).resolve().parent / "README.md"
 
@@ -755,6 +758,27 @@ class YAMLForm(QMainWindow):
         self.import_faq_csv_button.clicked.connect(self.import_faq_csv)
         ThemeManager.apply_button_style(self.import_faq_csv_button, "import")
 
+        # "Generate FAQs from People Also Ask": real Google PAA questions
+        # for the current seed keyword (keyword_research_api.
+        # fetch_people_also_ask, same YACSS Bucket Keyword/Topic Keyword
+        # seed the Keyword Research tab uses -- see _current_seed_keyword),
+        # answered by ai_content_generator.generate_faq_answers, then
+        # appended as new rows onto self.faq_table. Count is capped at
+        # MAX_PAA_QUESTIONS per the feature request ("maximum per cycle of
+        # 10") to keep one click's OpenAI cost bounded.
+        self.faq_paa_seed_label = QLabel("Seed keyword: (fill in YACSS Bucket Keyword first)")
+        self.faq_paa_seed_label.setFont(QFont("Arial", self.font_size))
+        self.faq_paa_count_spinbox = QSpinBox()
+        self.faq_paa_count_spinbox.setFont(QFont("Arial", self.font_size))
+        self.faq_paa_count_spinbox.setRange(1, MAX_PAA_QUESTIONS)
+        self.faq_paa_count_spinbox.setValue(5)
+        self.faq_paa_count_spinbox.setPrefix("Generate ")
+        self.faq_paa_count_spinbox.setSuffix(" FAQ(s)")
+        self.generate_faq_paa_button = QPushButton("Generate FAQs from People Also Ask")
+        self.generate_faq_paa_button.setFont(QFont("Arial", self.font_size))
+        self.generate_faq_paa_button.clicked.connect(self._generate_faq_from_paa)
+        ThemeManager.apply_button_style(self.generate_faq_paa_button, "export")
+
         self.city_list = QListWidget()
         self.city_list.setFont(QFont("Arial", self.font_size))
         self.city_list.setFixedHeight(150)
@@ -804,6 +828,9 @@ class YAMLForm(QMainWindow):
         self.keyword_research_results_table.itemChanged.connect(
             self._update_keyword_research_selection_count
         )
+        self.keyword_research_select_all_checkbox = self._make_select_all_checkbox(
+            self.keyword_research_results_table
+        )
 
         self.keyword_research_selection_count_label = QLabel("0 / 0 selected")
         self.keyword_research_selection_count_label.setFont(QFont("Arial", self.font_size))
@@ -846,6 +873,9 @@ class YAMLForm(QMainWindow):
         self.silo_categories_table.setFont(QFont("Arial", self.font_size))
         self.silo_categories_table.setFixedHeight(220)
         self.silo_categories_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.silo_categories_select_all_checkbox = self._make_select_all_checkbox(
+            self.silo_categories_table
+        )
 
         self.silo_find_services_button = QPushButton("Find Services for Selected Categories")
         self.silo_find_services_button.setFont(QFont("Arial", self.font_size))
@@ -860,6 +890,9 @@ class YAMLForm(QMainWindow):
         self.silo_services_table.setFont(QFont("Arial", self.font_size))
         self.silo_services_table.setFixedHeight(220)
         self.silo_services_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.silo_services_select_all_checkbox = self._make_select_all_checkbox(
+            self.silo_services_table
+        )
 
         self.silo_generate_content_button = QPushButton("Generate Content")
         self.silo_generate_content_button.setFont(QFont("Arial", self.font_size))
@@ -987,6 +1020,12 @@ class YAMLForm(QMainWindow):
         faq_buttons_row.addWidget(self.import_faq_csv_button)
         faq_buttons_row.addStretch()
         faq_layout.addLayout(faq_buttons_row)
+        faq_layout.addWidget(self.faq_paa_seed_label)
+        faq_paa_row = QHBoxLayout()
+        faq_paa_row.addWidget(self.faq_paa_count_spinbox)
+        faq_paa_row.addWidget(self.generate_faq_paa_button)
+        faq_paa_row.addStretch()
+        faq_layout.addLayout(faq_paa_row)
         faq_layout.addStretch()
         faq_tab.setLayout(faq_layout)
         self.main_tabs.addTab(faq_tab, "FAQ")
@@ -1014,6 +1053,7 @@ class YAMLForm(QMainWindow):
         run_row.addWidget(self.keyword_research_run_button)
         run_row.addStretch()
         keyword_research_layout.addLayout(run_row)
+        keyword_research_layout.addWidget(self.keyword_research_select_all_checkbox)
         keyword_research_layout.addWidget(self.keyword_research_results_table)
         send_row = QHBoxLayout()
         send_row.addWidget(self.keyword_research_selection_count_label)
@@ -1033,12 +1073,14 @@ class YAMLForm(QMainWindow):
         silo_categories_row.addStretch()
         silo_layout.addLayout(silo_categories_row)
         silo_layout.addWidget(QLabel("Categories:"))
+        silo_layout.addWidget(self.silo_categories_select_all_checkbox)
         silo_layout.addWidget(self.silo_categories_table)
         silo_services_row = QHBoxLayout()
         silo_services_row.addWidget(self.silo_find_services_button)
         silo_services_row.addStretch()
         silo_layout.addLayout(silo_services_row)
         silo_layout.addWidget(QLabel("Services:"))
+        silo_layout.addWidget(self.silo_services_select_all_checkbox)
         silo_layout.addWidget(self.silo_services_table)
         silo_actions_row = QHBoxLayout()
         silo_actions_row.addWidget(self.silo_generate_content_button)
@@ -1542,15 +1584,21 @@ class YAMLForm(QMainWindow):
         return bucket_keyword or topic_keyword
 
     def _refresh_keyword_research_seed_label(self):
+        # Shared by the Keyword Research tab's own label and the FAQ tab's
+        # "Generate FAQs from People Also Ask" label -- both show the
+        # exact same _current_seed_keyword() text, so one refresh updates
+        # both rather than keeping two copies of this logic in sync.
         seed = self._current_seed_keyword()
         if seed:
-            self.keyword_research_seed_label.setText(f'Seed keyword: "{seed}"')
+            text = f'Seed keyword: "{seed}"'
+            self.keyword_research_seed_label.setText(text)
+            self.faq_paa_seed_label.setText(text)
             return
         build_type = self.inputs["YACSS Build Type"].currentText()
         source_field = "YACSS Bucket Keyword" if build_type == "Diagram" else "YACSS Topic Keyword"
-        self.keyword_research_seed_label.setText(
-            f"Seed keyword: (fill in {source_field} on the YACSS Build tab first)"
-        )
+        text = f"Seed keyword: (fill in {source_field} on the YACSS Build tab first)"
+        self.keyword_research_seed_label.setText(text)
+        self.faq_paa_seed_label.setText(text)
 
     def _run_keyword_research(self):
         """"Run Research" button handler: calls DataForSEO Labs (via
@@ -1616,6 +1664,36 @@ class YAMLForm(QMainWindow):
                 "try a broader seed.",
             )
 
+    def _make_select_all_checkbox(self, table: QTableWidget) -> QCheckBox:
+        """One "Select All / Deselect All" checkbox per generated-results
+        table (Keyword Research's results table, both Content Silo
+        tables) -- toggling it bulk-sets every row's own "Use?" checkbox
+        via _set_table_checkboxes. Deliberately a plain (non-tristate)
+        checkbox that only ever drives the table, not one that also tracks
+        individual row edits back onto itself -- simpler, and matches what
+        the feature request actually asked for."""
+        checkbox = QCheckBox("Select All / Deselect All")
+        checkbox.setFont(QFont("Arial", self.font_size))
+        checkbox.toggled.connect(lambda checked: self._set_table_checkboxes(table, checked))
+        return checkbox
+
+    def _set_table_checkboxes(self, table: QTableWidget, checked: bool):
+        """Bulk-sets every row's column-0 "Use?" checkbox in `table` to
+        checked/unchecked -- the Select All/Deselect All checkbox's own
+        handler. Signals are blocked while writing every row so this
+        doesn't fire the keyword-research table's itemChanged handler once
+        per row; that table's own selection-count label is refreshed once,
+        explicitly, afterward instead."""
+        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+        table.blockSignals(True)
+        for row in range(table.rowCount()):
+            item = table.item(row, 0)
+            if item:
+                item.setCheckState(state)
+        table.blockSignals(False)
+        if table is self.keyword_research_results_table:
+            self._update_keyword_research_selection_count()
+
     def _populate_keyword_research_table(self, clusters: list):
         """Fills the results table from fetch_clusters' output (already
         volume-sorted). Flagged clusters (candidate_page_title_flagged --
@@ -1623,6 +1701,7 @@ class YAMLForm(QMainWindow):
         keyword_research_api.is_possible_brand_keyword) are marked in red
         rather than silently trusted or dropped -- the operator decides."""
         table = self.keyword_research_results_table
+        self.keyword_research_select_all_checkbox.setChecked(False)
         table.blockSignals(True)
         table.setRowCount(len(clusters))
         for row, cluster in enumerate(clusters):
@@ -1771,6 +1850,7 @@ class YAMLForm(QMainWindow):
             self.setEnabled(True)
 
         table = self.silo_categories_table
+        self.silo_categories_select_all_checkbox.setChecked(False)
         table.setRowCount(len(clusters))
         for row, cluster in enumerate(clusters):
             self._populate_silo_cluster_row(table, row, cluster, [cluster["candidate_page_title"]])
@@ -1800,6 +1880,7 @@ class YAMLForm(QMainWindow):
 
         local_tokens = self._silo_local_location_tokens()
         table = self.silo_services_table
+        self.silo_services_select_all_checkbox.setChecked(False)
         table.setRowCount(0)
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         self.setEnabled(False)
@@ -2631,6 +2712,90 @@ class YAMLForm(QMainWindow):
         for faq in faqs:
             self._add_faq_row(faq["question"], faq["answer"])
         QMessageBox.information(self, "Imported", f"Imported {len(faqs)} FAQ(s).")
+
+    def _generate_faq_from_paa(self):
+        """"Generate FAQs from People Also Ask" button handler: fetches up
+        to self.faq_paa_count_spinbox.value() real Google PAA questions
+        for the current seed keyword (keyword_research_api.
+        fetch_people_also_ask), writes a real answer for each via
+        ai_content_generator.generate_faq_answers, and appends them as new
+        rows onto self.faq_table -- existing rows are left alone, same
+        "append, don't replace" reasoning as _add_faq_row's other callers
+        (Import FAQs from CSV). A question the model didn't answer is
+        still added (with a blank answer) rather than silently dropped,
+        so the operator sees exactly what needs to be filled in by hand."""
+        seed = self._current_seed_keyword()
+        if not seed:
+            QMessageBox.warning(
+                self,
+                "No seed keyword",
+                "Fill in YACSS Bucket Keyword (Diagram) or YACSS Topic Keyword "
+                "(Listicle/Masspage) on the YACSS Build tab first.",
+            )
+            return
+
+        if not ai_content_is_available():
+            QMessageBox.warning(
+                self,
+                "AI Not Available",
+                "FAQ answer generation is not available. Set OPENAI_API_KEY "
+                "in cloud-stack-generator's .env (../cloud-stack-generator/.env) "
+                "to enable this feature.",
+            )
+            return
+
+        count = self.faq_paa_count_spinbox.value()
+        business_name = self.inputs["* Client Name"].text().strip()
+        business_category = self.inputs["* Business Category"].text().strip()
+        target_cities = [
+            line
+            for line in self.inputs["* Target Cities (one per line)"].toPlainText().splitlines()
+            if line.strip()
+        ]
+        services = [
+            line
+            for line in self.inputs["* Services (one per line)"].toPlainText().splitlines()
+            if line.strip()
+        ]
+
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        self.setEnabled(False)
+        try:
+            questions = fetch_people_also_ask(seed, count)
+        except KeywordResearchError as exc:
+            QMessageBox.critical(self, "People Also Ask lookup failed", str(exc))
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+            self.setEnabled(True)
+
+        if not questions:
+            QMessageBox.information(
+                self,
+                "No results",
+                f'Google shows no "People Also Ask" questions for "{seed}". '
+                "Try a more common phrasing or a broader seed.",
+            )
+            return
+
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        self.setEnabled(False)
+        try:
+            answers = generate_faq_answers(
+                business_name, business_category, target_cities, services, questions
+            )
+        except AiContentError as exc:
+            QMessageBox.critical(self, "FAQ answer generation failed", str(exc))
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+            self.setEnabled(True)
+
+        for question, answer in zip(questions, answers):
+            self._add_faq_row(question, answer)
+        QMessageBox.information(
+            self, "FAQs Generated", f"Added {len(questions)} FAQ(s) from People Also Ask."
+        )
 
     def open_city_dialog(self):
         dialog = CityEmbedDialog(self)

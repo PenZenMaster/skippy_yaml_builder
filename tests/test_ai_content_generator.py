@@ -167,3 +167,51 @@ def test_call_openai_raises_on_empty_response(monkeypatch):
         assert False, "expected AiContentError"
     except acg.AiContentError as exc:
         assert "empty" in str(exc).lower()
+
+
+def test_generate_faq_answers_returns_empty_list_for_no_questions(monkeypatch):
+    _configure(monkeypatch)
+    assert acg.generate_faq_answers("Acme Plumbing", "Plumbing", ["Dallas"], ["Drain Cleaning"], []) == []
+
+
+def test_generate_faq_answers_parses_numbered_answers_in_order(monkeypatch):
+    _configure(monkeypatch)
+    fake_client = _install_fake_client(
+        monkeypatch,
+        content=(
+            "1. Emergency repairs typically cost $150-$400 depending on the issue.\n"
+            "2. Most repairs are completed within an hour by an Acme Plumbing technician.\n"
+        ),
+    )
+    answers = acg.generate_faq_answers(
+        business_name="Acme Plumbing",
+        business_category="Plumbing",
+        target_cities=["Dallas", "Fort Worth"],
+        services=["Drain Cleaning"],
+        questions=["How much does emergency plumbing cost?", "How long does a repair take?"],
+    )
+    assert answers == [
+        "Emergency repairs typically cost $150-$400 depending on the issue.",
+        "Most repairs are completed within an hour by an Acme Plumbing technician.",
+    ]
+    # Both real questions are passed through into the prompt, in order.
+    prompt = fake_client.completions.calls[0]["messages"][1]["content"]
+    assert "1. How much does emergency plumbing cost?" in prompt
+    assert "2. How long does a repair take?" in prompt
+
+
+def test_generate_faq_answers_leaves_a_blank_for_a_question_the_model_skipped(monkeypatch):
+    _configure(monkeypatch)
+    _install_fake_client(
+        monkeypatch,
+        # Only answers question 1 and 3 -- question 2's answer is missing.
+        content="1. First answer.\n3. Third answer.\n",
+    )
+    answers = acg.generate_faq_answers(
+        business_name="Acme Plumbing",
+        business_category="Plumbing",
+        target_cities=["Dallas"],
+        services=["Drain Cleaning"],
+        questions=["Question one?", "Question two?", "Question three?"],
+    )
+    assert answers == ["First answer.", "", "Third answer."]

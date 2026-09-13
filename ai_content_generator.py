@@ -21,12 +21,18 @@ Created Date:
 2026-08-27
 
 Last Modified Date:
-2026-08-27
+2026-09-13
 
 Comments:
 - v1.00 Initial implementation.
+- v1.01 Added generate_faq_answers, backing the FAQ tab's "Generate FAQs
+  from People Also Ask" button: writes one real answer per real Google
+  PAA question (see keyword_research_api.fetch_people_also_ask for where
+  the questions themselves come from -- this module never invents
+  questions, only answers them).
 """
 
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -259,3 +265,74 @@ Return ONLY the content. No preamble, no explanations."""
         prompt=prompt,
         max_tokens=_get_max_tokens(DEFAULT_MAX_TOKENS),
     )
+
+
+def generate_faq_answers(
+    business_name: str,
+    business_category: str,
+    target_cities: list,
+    services: list,
+    questions: list,
+) -> list:
+    """Generates one answer per question in `questions`, in the same
+    order, for the FAQ tab's "Generate FAQs from People Also Ask" button
+    -- the questions themselves come from real Google search data (see
+    keyword_research_api.fetch_people_also_ask), this only writes the
+    answers.
+
+    Returns exactly len(questions) strings; any question the model's
+    response didn't number correctly comes back as "" rather than
+    shifting every later answer out of alignment -- callers should treat
+    a blank entry as a generation shortfall for that one question, not
+    fail the whole batch.
+
+    Raises:
+        AiContentError: on any failure to reach/parse the API response.
+    """
+    if not questions:
+        return []
+
+    cities_text = _format_list(target_cities, "its general service area")
+    services_text = _format_list(services, "its core services")
+    numbered_questions = "\n".join(f"{i + 1}. {q}" for i, q in enumerate(questions))
+
+    prompt = f"""Answer each of the following {len(questions)} real Google "People Also
+Ask" questions, on behalf of {business_name}, a {business_category}
+business serving {cities_text}. Services/products to reference when
+relevant: {services_text}.
+
+QUESTIONS:
+{numbered_questions}
+
+REQUIREMENTS:
+1. Answer EVERY question, in the same order, one answer per question.
+2. Each answer is 2-4 sentences, factual and specific to this business/
+   industry -- no generic filler, no invented statistics or claims you
+   cannot support.
+3. Plain prose only -- no markdown, no headings, no bullet points.
+4. Do not repeat the question text in the answer.
+
+OUTPUT FORMAT:
+Return ONLY the answers, one per line, each prefixed with its question
+number and a period (e.g. "1. <answer text>"), matching the question
+numbering above exactly. No preamble, no explanations."""
+
+    content = _call_openai(
+        system_message=(
+            "You are a customer-facing FAQ writer for local-service "
+            "businesses, answering real Google 'People Also Ask' "
+            "questions accurately and concisely."
+        ),
+        prompt=prompt,
+        max_tokens=max(500, len(questions) * 150),
+    )
+
+    answers_by_number = {}
+    for line in content.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        match = re.match(r"^(\d+)[.)]\s*(.+)$", line)
+        if match:
+            answers_by_number[int(match.group(1))] = match.group(2).strip()
+    return [answers_by_number.get(i + 1, "") for i in range(len(questions))]

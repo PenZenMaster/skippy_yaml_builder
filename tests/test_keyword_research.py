@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import QMessageBox
 from keyword_research_api import (
     cluster_keywords,
     fetch_clusters,
+    fetch_people_also_ask,
     is_off_target_location,
     is_possible_brand_keyword,
     local_location_tokens,
@@ -334,3 +335,106 @@ def test_cluster_keywords_flag_reason_combines_brand_and_off_target_location():
     ]
     clusters = cluster_keywords(seed_tokens, local_tokens, keywords)
     assert clusters[0]["candidate_page_title_flag_reason"] == "possible brand + off-target location"
+
+
+def _serp_organic_envelope(items):
+    return {
+        "status_code": 20000,
+        "status_message": "Ok.",
+        "tasks": [
+            {
+                "status_code": 20000,
+                "status_message": "Ok.",
+                "result": [{"items": items}],
+            }
+        ],
+    }
+
+
+def test_fetch_people_also_ask_parses_the_real_dataforseo_field_path():
+    response = _fake_response(
+        _serp_organic_envelope(
+            [
+                {"type": "organic", "title": "Not a PAA item -- ignored"},
+                {
+                    "type": "people_also_ask",
+                    "items": [
+                        {"type": "people_also_ask_element", "title": "How much does garage door repair cost?"},
+                        {"type": "people_also_ask_element", "title": "How long does garage door repair take?"},
+                    ],
+                },
+            ]
+        )
+    )
+    with patch("keyword_research_api._load_config", return_value=("login", "password")):
+        with patch("keyword_research_api.requests.post", return_value=response):
+            questions = fetch_people_also_ask("garage door repair")
+
+    assert questions == [
+        "How much does garage door repair cost?",
+        "How long does garage door repair take?",
+    ]
+
+
+def test_fetch_people_also_ask_returns_empty_list_when_no_paa_box():
+    # Confirmed via the analogous fetch_related_keywords case: Google can
+    # genuinely show no PAA box at all for a niche seed -- a real data
+    # gap, not a bug.
+    response = _fake_response(_serp_organic_envelope([{"type": "organic", "title": "Just organic results"}]))
+    with patch("keyword_research_api._load_config", return_value=("login", "password")):
+        with patch("keyword_research_api.requests.post", return_value=response):
+            questions = fetch_people_also_ask("an overly niche uncommon phrase")
+
+    assert questions == []
+
+
+def test_fetch_people_also_ask_dedupes_repeated_questions():
+    response = _fake_response(
+        _serp_organic_envelope(
+            [
+                {
+                    "type": "people_also_ask",
+                    "items": [
+                        {"title": "How much does garage door repair cost?"},
+                        {"title": "How much does garage door repair cost?"},
+                        {"title": "Who fixes garage doors near me?"},
+                    ],
+                },
+            ]
+        )
+    )
+    with patch("keyword_research_api._load_config", return_value=("login", "password")):
+        with patch("keyword_research_api.requests.post", return_value=response):
+            questions = fetch_people_also_ask("garage door repair")
+
+    assert questions == [
+        "How much does garage door repair cost?",
+        "Who fixes garage doors near me?",
+    ]
+
+
+def test_fetch_people_also_ask_caps_at_the_requested_max():
+    items = [{"title": f"Question {i}?"} for i in range(8)]
+    response = _fake_response(
+        _serp_organic_envelope([{"type": "people_also_ask", "items": items}])
+    )
+    with patch("keyword_research_api._load_config", return_value=("login", "password")):
+        with patch("keyword_research_api.requests.post", return_value=response):
+            questions = fetch_people_also_ask("garage door repair", max_questions=3)
+
+    assert len(questions) == 3
+
+
+def test_fetch_people_also_ask_clamps_a_max_above_the_hard_ceiling():
+    items = [{"title": f"Question {i}?"} for i in range(15)]
+    response = _fake_response(
+        _serp_organic_envelope([{"type": "people_also_ask", "items": items}])
+    )
+    with patch("keyword_research_api._load_config", return_value=("login", "password")):
+        with patch("keyword_research_api.requests.post", return_value=response):
+            # A caller (or a manipulated widget value) asking for more than
+            # MAX_PAA_QUESTIONS must still be capped at the hard ceiling,
+            # not just at whatever the UI's own QSpinBox happens to allow.
+            questions = fetch_people_also_ask("garage door repair", max_questions=999)
+
+    assert len(questions) == 10

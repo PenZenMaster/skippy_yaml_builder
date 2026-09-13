@@ -3,6 +3,26 @@
 All notable changes to this project are documented in this file. Format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.0] - 2026-09-13
+
+### Added
+
+- **"Generate FAQs from People Also Ask"** (FAQ tab): pulls up to 10 real
+  Google "People Also Ask" questions per click for the current seed
+  keyword (the same `YACSS Bucket Keyword`/`YACSS Topic Keyword` seed the
+  Keyword Research tab already uses) via a new `keyword_research_api.
+  fetch_people_also_ask` (DataForSEO's Google SERP API -- a different
+  DataForSEO product from the Labs endpoints every other function in that
+  module calls), then writes a real, business-specific answer for each
+  question via a new `ai_content_generator.generate_faq_answers` (same
+  OpenAI backend as the Diagram "Generate with AI" buttons and Content
+  Silo's Generate Content). Generated rows are appended to the FAQ table,
+  same as Import FAQs from CSV.
+- **Select All / Deselect All** checkbox above each of the three
+  generated-results tables (Keyword Research's results table, and both
+  Content Silo tables) -- bulk-checks/unchecks every row's "Use?" box in
+  one click instead of clicking each row individually.
+
 ## [0.7.0] - 2026-09-06
 
 ### Added

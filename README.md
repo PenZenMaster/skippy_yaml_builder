@@ -135,11 +135,13 @@ Diagram Page Titles` for a Diagram build (see "Basic workflow" above).
      niche/uncommon exact phrase -- if that happens you'll see an explicit
      "No results" message (not a silent empty table) suggesting a broader
      phrasing.
-3. Check the rows you want (the "N / needed" counter tracks against the
-   Diagram build's real multiplicative page-title total, same math as the
-   page-titles field's own live counter) and click **Send Selected to
-   YACSS Build Tab** to write them into `YACSS Diagram Page Titles` --
-   confirms first if that field already has content.
+3. Check the rows you want -- or use the **Select All / Deselect All**
+   checkbox above the table to check/uncheck every row at once -- (the
+   "N / needed" counter tracks against the Diagram build's real
+   multiplicative page-title total, same math as the page-titles field's
+   own live counter) and click **Send Selected to YACSS Build Tab** to
+   write them into `YACSS Diagram Page Titles` -- confirms first if that
+   field already has content.
 
 ### Content Silo tab
 A separate content pipeline for the client's OWN website, unrelated to any
@@ -155,14 +157,16 @@ touches Save YAML/Open YAML/Export Job JSON.
    DataForSEO clustering the Keyword Research tab uses (including its
    off-target-location flagging from Client Info's State/Target Cities) to
    discover the top-level categories.
-2. Check the category rows you want, then click **Find Services for
-   Selected Categories** -- re-runs clustering seeded by each checked
-   category's own title to discover the services within it. Re-running
-   this always rebuilds the whole services table from whichever categories
-   are currently checked, rather than appending -- unchecking a category
-   and re-running removes its stale rows.
-3. Check whichever category and/or service rows you want actual pages for,
-   then click **Generate Content**. A checked category becomes its own
+2. Check the category rows you want -- or use the **Select All / Deselect
+   All** checkbox above the Categories table -- then click **Find
+   Services for Selected Categories** -- re-runs clustering seeded by
+   each checked category's own title to discover the services within it.
+   Re-running this always rebuilds the whole services table from whichever
+   categories are currently checked, rather than appending -- unchecking a
+   category and re-running removes its stale rows.
+3. Check whichever category and/or service rows you want actual pages for
+   (each table has its own **Select All / Deselect All** checkbox), then
+   click **Generate Content**. A checked category becomes its own
    silo-landing page (its content naturally references every service
    discovered under it, whether or not that service is ALSO checked for
    its own page); a checked service becomes its own leaf page. One page
@@ -202,6 +206,16 @@ Controls how a Diagram build's page content is generated:
   optional `Question,Answer` header row is detected and skipped
   automatically). Imported rows are **appended** to whatever's already
   in the table, not a destructive replace.
+- **Generate FAQs from People Also Ask**: pick a count (1-10 per click)
+  and click the button to pull real Google "People Also Ask" questions
+  for the current seed keyword (the same `YACSS Bucket Keyword`/`YACSS
+  Topic Keyword` seed the Keyword Research tab uses, shown in the same
+  "Seed keyword" label) via DataForSEO's Google SERP API, then write a
+  real answer for each via AI (uses the same `OPENAI_API_KEY` as the
+  Diagram "Generate with AI" buttons and Content Silo's Generate
+  Content). Generated rows are **appended**, same as CSV import. Google
+  can genuinely show no PAA box for an uncommon seed -- that's reported
+  as an explicit "No results" message, not a silent no-op.
 
 ### Exporting a real rr_yacss_factory job file
 **Export Job JSON** writes a real `rr_yacss_factory` job file -- the same
