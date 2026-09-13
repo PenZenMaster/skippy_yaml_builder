@@ -34,12 +34,12 @@ today. If linting/type-checking is ever added, update this section and the
 global gate's expectations together, don't silently diverge from what's
 actually enforced.
 
-Two venvs currently exist in the repo root: `venv/` (canonical, documented
-in README.md) and an undocumented `.venv/` with a different PyQt6 patch
-version -- always use `venv/Scripts/python.exe` /
-`venv/Scripts/pytest.exe` explicitly rather than whatever `python`/`pytest`
-resolves to on PATH, until these are consolidated (see
-`docs/projectStatus.md`'s "Resume From" section for that open item).
+Only one venv exists in the repo root: `venv/` (canonical, documented in
+README.md). An undocumented second `.venv/` briefly existed with a stale
+PyQt6 patch version and was deleted 2026-09-13 -- always use
+`venv/Scripts/python.exe` / `venv/Scripts/pytest.exe` explicitly rather
+than whatever `python`/`pytest` resolves to on PATH, and don't recreate a
+second venv at the repo root.
 
 ## Project Start / Checkpoint / Shutdown
 

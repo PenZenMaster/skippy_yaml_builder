@@ -1,8 +1,13 @@
 ## Resume From
 
 Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-09-06_1250.md`
-Last session: 2026-09-06
+Last session: 2026-09-13
 Branch: main | Version: 0.7.0
+
+**2026-09-13**: Consolidated the two-venv issue -- deleted the stale,
+undocumented `.venv/` (older PyQt6 patch version) so only the canonical
+`venv/` (documented in README.md, matches `run.cmd`) remains at the repo
+root. Project `CLAUDE.md` updated to drop the now-resolved caveat.
 
 **2026-09-06**: v0.6.0 (File > Exit, FAQ 50/50 columns, two new optional
 name fields fixing a real company.name/listicle.name gap, a real
