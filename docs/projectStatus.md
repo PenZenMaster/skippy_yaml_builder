@@ -1,13 +1,21 @@
 ## Resume From
 
-Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-09-06_1250.md`
+Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-09-13_1233.md`
 Last session: 2026-09-13
-Branch: main | Version: 0.7.0
+Branch: main | Version: 0.8.0
 
 **2026-09-13**: Consolidated the two-venv issue -- deleted the stale,
 undocumented `.venv/` (older PyQt6 patch version) so only the canonical
 `venv/` (documented in README.md, matches `run.cmd`) remains at the repo
-root. Project `CLAUDE.md` updated to drop the now-resolved caveat.
+root. Project `CLAUDE.md` updated to drop the now-resolved caveat. Then
+shipped v0.8.0: **"Generate FAQs from People Also Ask"** on the FAQ tab
+(real Google PAA questions via a new `keyword_research_api.
+fetch_people_also_ask`, DataForSEO's SERP API, answered per-question by a
+new `ai_content_generator.generate_faq_answers`, capped at 10 per click)
+and a **Select All / Deselect All** checkbox above each of the three
+generated-results tables (Keyword Research + both Content Silo tables).
+Full suite 185/185 passing (163 at session start). Full detail in
+`docs/archive/checkpoints/CheckPoint-2026-09-13_1233.md`.
 
 **2026-09-06**: v0.6.0 (File > Exit, FAQ 50/50 columns, two new optional
 name fields fixing a real company.name/listicle.name gap, a real
