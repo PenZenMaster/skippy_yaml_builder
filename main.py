@@ -47,7 +47,7 @@ from silo_content_generator import (
 # running instance is identifiable, unlike the old hardcoded "v4" (a
 # leftover UI-redesign label, not a real version, that stopped being
 # updated years before this was added).
-__version__ = "0.8.0"
+__version__ = "0.9.0"
 
 README_PATH = Path(__file__).resolve().parent / "README.md"
 
@@ -411,7 +411,8 @@ class YAMLForm(QMainWindow):
         "Primary Business Category",
     ]
     YACSS_BUILD_FIELDS = [
-        "YACSS Build Type", "YACSS Template", "YACSS Bucket Keyword", "YACSS Topic Keyword",
+        "YACSS Build Type", "YACSS Template", "YACSS Job ID (override)",
+        "YACSS Bucket Keyword", "YACSS Topic Keyword",
         "YACSS Tier0 Pages", "YACSS Tiers (tier:pages, one per line)", "YACSS AI Platform",
         "YACSS AI Model", "YACSS Tone", "YACSS Language", "YACSS Items Per Listicle",
         "YACSS Brand Name", "YACSS Brand URL", "YACSS Brand Position",
@@ -571,6 +572,22 @@ class YAMLForm(QMainWindow):
             # for what each corresponds to on the wire.
             "YACSS Build Type": yacss_build_type,
             "YACSS Template": yacss_template,
+            # Optional -- every previous export auto-derived job_id purely
+            # from slugify(client_name) (or +"-listicle"/"-masspage"), with
+            # no way to change it. Rebuilding the same client (e.g. testing
+            # a different Tier 1 cloud account, or re-running after fixing
+            # a mistake) silently overwrote rr_yacss_factory's manifest
+            # entry for the PRIOR build under that same job_id -- the prior
+            # build stayed live on YACSS but dropped out of local tracking.
+            # Confirmed live 2026-09-13 (Happy Hooves Wellness, then Salvo
+            # Metal Works) working around this by hand-editing job_id (and
+            # YACSS Bucket Keyword, which must also change to avoid
+            # overwriting the prior build's actual published pages) before
+            # each rebuild. Left blank, every _build_*_job method falls
+            # back to its prior auto-derived value via _resolve_job_id --
+            # no existing client file's export output changes unless this
+            # is deliberately filled in.
+            "YACSS Job ID (override)": QLineEdit(),
             "YACSS Bucket Keyword": QLineEdit(),
             # Listicle/Masspage only -- their real ListicleJob/MasspageJob.keyword
             # (see rr_yacss_factory's src/jobs/schema.ts) is the job's own SEO
@@ -645,6 +662,7 @@ class YAMLForm(QMainWindow):
         # mapping.
         self.placeholders = {
             "Legal / Company Name": "optional -- only if different from * Client Name (e.g. \"Acme Plumbing & Associates LLC\")",
+            "YACSS Job ID (override)": "blank = auto-generate from Client Name; set/bump this (and YACSS Bucket Keyword) before rebuilding the same client to avoid overwriting the prior build, e.g. acme-plumbing-01",
             "YACSS Template": "e.g. porto-001",
             "YACSS Bucket Keyword": "themed micro-site name -- becomes the real cloud bucket name",
             "YACSS Topic Keyword": "e.g. best coffee shops in Austin -- the listicle/masspage subject",
@@ -1451,6 +1469,42 @@ class YAMLForm(QMainWindow):
         a single hyphen, no leading/trailing hyphens."""
         slug = re.sub(r"[^a-z0-9]+", "-", text.strip().lower())
         return slug.strip("-")
+
+    def _resolve_job_id(self, default: str) -> str:
+        """Returns the "YACSS Job ID (override)" field's value if the user
+        filled it in, else the given auto-derived default -- shared by all
+        three _build_*_job methods. See that field's own setup comment in
+        self.inputs for why it exists."""
+        override = self.inputs["YACSS Job ID (override)"].text().strip()
+        return override or default
+
+    @staticmethod
+    def _extract_google_maps_embed_url(embed_code: str):
+        """Extracts the real src="..." URL from a pasted Google Maps
+        "Embed a map" <iframe> snippet ("Google Maps Embed Code" field,
+        Content tab) -- YACSS's real mymapsurl build field (live GET
+        /build-fields, "Embed" group -- present for diagram/masspage only,
+        confirmed absent for listicle/local_listicle) wants the bare URL,
+        not the surrounding <iframe width=/height=/style=/...> HTML.
+        Confirmed live 2026-09-14 against a real Google Maps Share ->
+        Embed a map -> Copy HTML capture (Salvo Metal Works): the URL is
+        standard Google "Embed a map" pb= format, not a Google "My Maps"
+        mid= URL -- that field's own build-fields label uses a misleading
+        mid= example. Returns (url, None) on a clean match, or ("",
+        warning) when the field has content that isn't a real <iframe
+        src="..."> snippet (e.g. a bare link was pasted instead)."""
+        text = embed_code.strip()
+        if not text:
+            return "", None
+        match = re.search(r'src="([^"]+)"', text)
+        if not match:
+            return (
+                "",
+                'Google Maps Embed Code doesn\'t look like a pasted <iframe> tag (no '
+                'src="..." found) -- use Google Maps\' Share -> Embed a map -> Copy '
+                "HTML, and paste the full HTML, not just a link",
+            )
+        return match.group(1), None
 
     @staticmethod
     def _compute_cloud_stack_total_pages(tier0_pages: int, tier_pages) -> int:
@@ -2359,7 +2413,7 @@ class YAMLForm(QMainWindow):
             require(company[field_name], f"Company {field_name}")
 
         job = {
-            "job_id": self._slugify(client_name) or "cloud-stack-job",
+            "job_id": self._resolve_job_id(self._slugify(client_name) or "cloud-stack-job"),
             "type": "cloud_stack",
             "keyword": keyword,
             "name": client_name,
@@ -2400,6 +2454,14 @@ class YAMLForm(QMainWindow):
                 job["ai_platform"] = ai_platform
             if ai_model:
                 job["ai_model"] = ai_model
+
+        maps_url, maps_warning = self._extract_google_maps_embed_url(
+            self.inputs["Google Maps Embed Code"].toPlainText()
+        )
+        if maps_warning:
+            warnings.append(maps_warning)
+        elif maps_url:
+            job.setdefault("extra_fields", {})["mymapsurl"] = maps_url
 
         return job, warnings
 
@@ -2471,7 +2533,11 @@ class YAMLForm(QMainWindow):
             # cloud_stack itself keeps its bare slug unchanged (see its own
             # job_id line) since real published builds already exist under
             # that exact job_id and renaming it would orphan them.
-            "job_id": f"{self._slugify(client_name)}-listicle" if client_name.strip() else "listicle-job",
+            # "YACSS Job ID (override)", when filled in, wins outright over
+            # this auto-derived suffix -- see _resolve_job_id.
+            "job_id": self._resolve_job_id(
+                f"{self._slugify(client_name)}-listicle" if client_name.strip() else "listicle-job"
+            ),
             "type": "listicle",
             "keyword": topic_keyword,
             "name": display_title,
@@ -2576,8 +2642,12 @@ class YAMLForm(QMainWindow):
         job = {
             # "-masspage" suffix: see _build_listicle_job's own doc comment
             # for why -- same collision risk against the client's
-            # cloud_stack job_id.
-            "job_id": f"{self._slugify(client_name)}-masspage" if client_name.strip() else "masspage-job",
+            # cloud_stack job_id. "YACSS Job ID (override)" wins outright
+            # over this auto-derived suffix when filled in -- see
+            # _resolve_job_id.
+            "job_id": self._resolve_job_id(
+                f"{self._slugify(client_name)}-masspage" if client_name.strip() else "masspage-job"
+            ),
             "type": "masspage",
             "keyword": topic_keyword,
             "name": client_name,
@@ -2589,6 +2659,15 @@ class YAMLForm(QMainWindow):
             "cloud_account_ids": cloud_account_ids,
             "lsi_keyword": lsi_keyword,
         }
+
+        maps_url, maps_warning = self._extract_google_maps_embed_url(
+            self.inputs["Google Maps Embed Code"].toPlainText()
+        )
+        if maps_warning:
+            warnings.append(maps_warning)
+        elif maps_url:
+            job.setdefault("extra_fields", {})["mymapsurl"] = maps_url
+
         return job, warnings
 
     def export_job_json(self):

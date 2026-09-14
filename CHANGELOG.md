@@ -3,6 +3,51 @@
 All notable changes to this project are documented in this file. Format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.0] - 2026-09-14
+
+### Added
+
+- **"YACSS Job ID (override)"** field (YACSS Build tab, all three build
+  types): every previous export auto-derived `job_id` purely from
+  `slugify(Client Name)` (or `+"-listicle"`/`"-masspage"`), with no way to
+  change it. Rebuilding the same client -- e.g. testing a different Tier 1
+  cloud account, the exact workflow found live 2026-09-13 (Happy Hooves
+  Wellness, then Salvo Metal Works) -- silently overwrote
+  `rr_yacss_factory`'s `state/manifest.json` entry for the prior build
+  under that same `job_id`: the prior build stayed live on YACSS but
+  dropped out of local tracking. Left blank, every `_build_*_job` method
+  keeps its prior auto-derived value (new `_resolve_job_id` helper) -- no
+  existing client export changes unless this is deliberately filled in.
+  Also updates Export Job JSON's suggested filename, which already reads
+  `job["job_id"]`. Does not by itself avoid a real cloud-storage bucket
+  collision -- `YACSS Bucket Keyword` still needs to change too for a
+  genuinely distinct rebuild (see `rr_yacss_factory/docs/User_Manual.md`).
+- **"Google Maps Embed Code" now actually exports** (Diagram and
+  Masspage_Silo_Local only): this field existed on the Content tab and was
+  saved/loaded in the client YAML, but no `_build_*_job` method ever read
+  it -- exporting a job JSON silently dropped it. Live `GET /build-fields`
+  confirmed a real field, `mymapsurl` ("Embed" group), on `diagram` and
+  `masspage` only (absent for `listicle`/`local_listicle`). It wants the
+  bare `src="..."` URL, not the full `<iframe>` HTML Google's own Share ->
+  Embed a map -> Copy HTML produces -- new `_extract_google_maps_embed_url`
+  pulls that URL out and sends it as `extra_fields.mymapsurl`. Confirmed
+  live 2026-09-14 that Google's current flow still produces the standard
+  `pb=` "Embed a map" format (not a "My Maps" `mid=` URL, despite that
+  field's own live-fetched label using a misleading `mid=` example -- a
+  stale label, not a real format requirement). A pasted value with no
+  parseable `src="..."` (e.g. a bare share link) warns rather than silently
+  sending garbage; a blank field has no effect, same as before this existed.
+  Verified genuinely working end-to-end, not just accepted-and-ignored
+  (`rr_yacss_factory`'s masspage `content1_embed_type`/`content1_embed_url`
+  carry a live `ignored_by_builder: true` flag -- `mymapsurl` does not):
+  a real one-off `cloud_stack` build (129633, not a client job) sent this
+  exact extraction through `run` -> `generate --confirm --wait` -> `publish
+  --confirm`, and the published page (curl-confirmed HTTP 200) rendered a
+  real `<iframe src="https://www.google.com/maps/embed?pb=...">` with the
+  sent URL intact, wrapped in YACSS's own `width="100%" height="480"` --
+  confirming the pasted `<iframe>`'s own width/height/style attributes are
+  correctly discarded, not needed.
+
 ## [0.8.0] - 2026-09-13
 
 ### Added

@@ -126,6 +126,23 @@ def test_build_cloud_stack_job_happy_path_no_warnings(qapp):
     assert "content_image_url" not in job
 
 
+def test_build_cloud_stack_job_job_id_override_wins_over_auto_derived_slug(qapp):
+    form = YAMLForm()
+    _fill_required_fields(form)
+    form.inputs["YACSS Tiers (tier:pages, one per line)"].setPlainText("1:3")
+    form.diagram_tier_accounts_table.setItem(0, 1, QTableWidgetItem("28205,27502"))
+    form.inputs["YACSS Diagram Page Titles (one per line)"].setPlainText(
+        "Home\nPage 1\nPage 2\nPage 3"
+    )
+    form.inputs["YACSS Diagram Content"].setPlainText("Some real content.")
+    form.inputs["YACSS Job ID (override)"].setText("acme-plumbing-01")
+
+    job, warnings = form._build_cloud_stack_job()
+
+    assert warnings == []
+    assert job["job_id"] == "acme-plumbing-01"
+
+
 def test_build_cloud_stack_job_maps_hero_and_content_image_urls(qapp):
     # Both fields already existed on the form (Content tab) but were never
     # read by _build_cloud_stack_job -- Hero Image URL was silently
@@ -142,6 +159,55 @@ def test_build_cloud_stack_job_maps_hero_and_content_image_urls(qapp):
 
     assert job["hero_image_url"] == "https://acmeplumbing.example/hero.jpg"
     assert job["content_image_url"] == "https://acmeplumbing.example/van-photo.jpg"
+
+
+def test_build_cloud_stack_job_extracts_maps_embed_url_from_iframe_snippet(qapp):
+    # YACSS's real mymapsurl build field (live GET /build-fields, "Embed"
+    # group) wants the bare src="..." URL, not the full pasted <iframe>
+    # tag Google's own Share -> Embed a map -> Copy HTML produces.
+    form = YAMLForm()
+    _fill_required_fields(form)
+    form.inputs["YACSS Diagram Page Titles (one per line)"].setPlainText("Home")
+    form.inputs["YACSS Diagram Content"].setPlainText("content")
+    form.inputs["Google Maps Embed Code"].setPlainText(
+        '<iframe src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d2975.25"'
+        ' width="600" height="450" style="border:0;" allowfullscreen="" loading="lazy"'
+        ' referrerpolicy="strict-origin-when-cross-origin"></iframe>'
+    )
+
+    job, warnings = form._build_cloud_stack_job()
+
+    assert warnings == []
+    assert job["extra_fields"] == {
+        "mymapsurl": "https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d2975.25"
+    }
+
+
+def test_build_cloud_stack_job_omits_extra_fields_when_maps_embed_code_blank(qapp):
+    form = YAMLForm()
+    _fill_required_fields(form)
+    form.inputs["YACSS Diagram Page Titles (one per line)"].setPlainText("Home")
+    form.inputs["YACSS Diagram Content"].setPlainText("content")
+    # Google Maps Embed Code deliberately left blank.
+
+    job, warnings = form._build_cloud_stack_job()
+
+    assert warnings == []
+    assert "extra_fields" not in job
+
+
+def test_build_cloud_stack_job_warns_on_unparseable_maps_embed_code(qapp):
+    form = YAMLForm()
+    _fill_required_fields(form)
+    form.inputs["YACSS Diagram Page Titles (one per line)"].setPlainText("Home")
+    form.inputs["YACSS Diagram Content"].setPlainText("content")
+    # A bare link instead of the full <iframe ...> HTML -- no src="..." to extract.
+    form.inputs["Google Maps Embed Code"].setPlainText("https://maps.app.goo.gl/gw2ztMTosQA62Wex7")
+
+    job, warnings = form._build_cloud_stack_job()
+
+    assert any("doesn't look like a pasted <iframe> tag" in w for w in warnings)
+    assert "extra_fields" not in job
 
 
 def test_build_cloud_stack_job_maps_faqs_into_the_real_faqs_field(qapp):
@@ -289,6 +355,45 @@ def test_build_listicle_job_happy_path_no_warnings(qapp):
     }
 
 
+def test_build_listicle_job_ignores_maps_embed_code(qapp):
+    # ListicleJob has no mymapsurl equivalent -- live GET /build-fields
+    # confirmed listicle/local_listicle have no "Embed" field group at
+    # all, unlike diagram/masspage. Filling in Google Maps Embed Code
+    # (visible regardless of build type, Content tab) must not leak into
+    # a Listicle export.
+    form = YAMLForm()
+    form.inputs["YACSS Build Type"].setCurrentText("Listicle")
+    _fill_listicle_masspage_shared_fields(form)
+    form.inputs["YACSS AI Model"].setCurrentText("gpt-5-mini")
+    form.inputs["YACSS Tone"].setCurrentText("friendly")
+    form.inputs["YACSS Language"].setText("en")
+    form.inputs["YACSS Items Per Listicle"].setText("6")
+    form.inputs["Google Maps Embed Code"].setPlainText(
+        '<iframe src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d2975.25"></iframe>'
+    )
+
+    job, warnings = form._build_listicle_job()
+
+    assert warnings == []
+    assert "extra_fields" not in job
+
+
+def test_build_listicle_job_job_id_override_wins_over_auto_derived_suffix(qapp):
+    form = YAMLForm()
+    form.inputs["YACSS Build Type"].setCurrentText("Listicle")
+    _fill_listicle_masspage_shared_fields(form)
+    form.inputs["YACSS AI Model"].setCurrentText("gpt-5-mini")
+    form.inputs["YACSS Tone"].setCurrentText("friendly")
+    form.inputs["YACSS Language"].setText("en")
+    form.inputs["YACSS Items Per Listicle"].setText("6")
+    form.inputs["YACSS Job ID (override)"].setText("acme-plumbing-listicle-01")
+
+    job, warnings = form._build_listicle_job()
+
+    assert warnings == []
+    assert job["job_id"] == "acme-plumbing-listicle-01"
+
+
 def test_build_listicle_job_warns_on_blank_required_fields(qapp):
     form = YAMLForm()
     form.inputs["YACSS Build Type"].setCurrentText("Listicle")
@@ -427,6 +532,43 @@ def test_build_masspage_job_happy_path_no_warnings(qapp):
         "cloud_account_ids": ["28205"],
         "lsi_keyword": "acme-plumbing-diagram-stack",
     }
+
+
+def test_build_masspage_job_extracts_maps_embed_url_from_iframe_snippet(qapp):
+    # Same mymapsurl extraction as _build_cloud_stack_job -- masspage is
+    # the other build type with a real "Embed" field group (live GET
+    # /build-fields), confirmed absent for listicle/local_listicle.
+    form = YAMLForm()
+    form.inputs["YACSS Build Type"].setCurrentText("Masspage_Silo_Local")
+    _fill_listicle_masspage_shared_fields(form)
+    form.inputs["YACSS Diagram Page Titles (one per line)"].setPlainText("Emergency Plumbing Repair")
+    form.inputs["YACSS Diagram Content"].setPlainText("Acme Plumbing serves greater Dallas.")
+    form.inputs["Google Maps Embed Code"].setPlainText(
+        '<iframe src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d2975.25" width="600"></iframe>'
+    )
+
+    job, warnings = form._build_masspage_job()
+
+    assert warnings == []
+    assert job["extra_fields"] == {
+        "mymapsurl": "https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d2975.25"
+    }
+
+
+def test_build_masspage_job_job_id_override_wins_over_auto_derived_suffix(qapp):
+    form = YAMLForm()
+    form.inputs["YACSS Build Type"].setCurrentText("Masspage_Silo_Local")
+    _fill_listicle_masspage_shared_fields(form)
+    form.inputs["YACSS Diagram Page Titles (one per line)"].setPlainText(
+        "Emergency Plumbing Repair\nDrain Cleaning"
+    )
+    form.inputs["YACSS Diagram Content"].setPlainText("Acme Plumbing serves greater Dallas.")
+    form.inputs["YACSS Job ID (override)"].setText("acme-plumbing-masspage-01")
+
+    job, warnings = form._build_masspage_job()
+
+    assert warnings == []
+    assert job["job_id"] == "acme-plumbing-masspage-01"
 
 
 def test_build_masspage_job_warns_on_blank_required_fields(qapp):

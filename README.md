@@ -244,6 +244,46 @@ currently doesn't send FAQs either, even though `MasspageJob.faqs` is a
 real, already-working field on the `rr_yacss_factory` side -- this app's
 Masspage export path just doesn't populate it yet.
 
+### YACSS Job ID (override) -- avoiding rebuild collisions
+Every export's `job_id` is auto-derived from `slugify(* Client Name)`
+(Listicle/Masspage append `-listicle`/`-masspage` to avoid colliding with
+the same client's own Diagram `job_id`). `rr_yacss_factory`'s
+`state/manifest.json` is keyed by `job_id`, so re-exporting and rebuilding
+the *same* client under an unchanged `job_id` -- e.g. testing a different
+Tier 1 cloud account, or re-running after fixing a mistake -- silently
+overwrites the manifest entry for the prior build: that prior build stays
+live on YACSS, but `factory status`/`publish` stop tracking it locally.
+Fill in `YACSS Job ID (override)` (YACSS Build tab) with a distinct value
+(e.g. `acme-plumbing-01`, `acme-plumbing-02`) before a deliberate rebuild
+to keep both tracked side-by-side. Leave it blank for a normal first
+export -- every existing client file's `job_id` is unaffected. For a
+Diagram build specifically, also change `YACSS Bucket Keyword` -- it names
+the real cloud storage bucket, so an unchanged keyword with the same page
+titles overwrites the prior build's actual published pages, not just the
+local manifest entry.
+
+### Google Maps Embed Code (Diagram and Masspage_Silo_Local only)
+Paste the full `<iframe ...>` HTML from Google Maps' **Share -> Embed a
+map -> Copy HTML** for the client's real listing (not just a share link --
+see the "How to find the correct URL" note below if the Share dialog's
+tabs aren't obvious). The export pulls just the `src="..."` URL out of
+that HTML and sends it as `extra_fields.mymapsurl` -- confirmed via live
+`GET /build-fields` as a real field, present for Diagram/Masspage only
+(`listicle`/`local_listicle` have no such field at all, so this is a no-op
+for those two types no matter what's pasted here). If what's pasted
+doesn't contain a parseable `src="..."` (e.g. a bare `maps.app.goo.gl`
+share link was pasted instead of the full embed HTML), export warns
+rather than silently sending something YACSS will reject or ignore.
+
+**How to find the correct URL**: search the business in Google Maps,
+open the correct listing, click **Share**, then the **"Embed a map"**
+tab (a second tab next to "Send a link" -- easy to miss), then **Copy
+HTML**. The result looks like `https://www.google.com/maps/embed?pb=...`
+(Google's standard "Embed a map" format) -- this is NOT the same as a
+Google "My Maps" `mid=...` URL, despite `mymapsurl`'s own live-fetched
+field label using a `mid=` example; that label is stale/misleading, live-
+confirmed 2026-09-14 against a real Share -> Embed a map capture.
+
 ### Hero Image URL / Content Image URL (Diagram only)
 Both feed a Diagram export directly: `Hero Image URL` becomes
 `CloudStackJob.hero_image_url` (a full-width banner shown below the nav,
