@@ -1,8 +1,17 @@
 ## Resume From
 
-Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-09-13_1233.md`
-Last session: 2026-09-13
-Branch: main | Version: 0.8.0
+Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-09-14_0851.md`
+Last session: 2026-09-14
+Branch: main | Version: 0.9.0
+
+**2026-09-14**: v0.8.0's PAA-driven FAQs and Select All checkboxes passed
+manual QA. Also found and committed a separate, already-complete v0.9.0
+feature set present on disk (uncommitted) at session start -- **"YACSS
+Job ID (override)"** (avoids silently overwriting `rr_yacss_factory`'s
+manifest entry when rebuilding the same client) and a fix making "Google
+Maps Embed Code" actually export (`extra_fields.mymapsurl`, previously
+silently dropped). Full suite 193/193 passing (185 at session start).
+Full detail in `docs/archive/checkpoints/CheckPoint-2026-09-14_0851.md`.
 
 **2026-09-13**: Consolidated the two-venv issue -- deleted the stale,
 undocumented `.venv/` (older PyQt6 patch version) so only the canonical
