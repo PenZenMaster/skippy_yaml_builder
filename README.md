@@ -255,12 +255,19 @@ overwrites the manifest entry for the prior build: that prior build stays
 live on YACSS, but `factory status`/`publish` stop tracking it locally.
 Fill in `YACSS Job ID (override)` (YACSS Build tab) with a distinct value
 (e.g. `acme-plumbing-01`, `acme-plumbing-02`) before a deliberate rebuild
-to keep both tracked side-by-side. Leave it blank for a normal first
-export -- every existing client file's `job_id` is unaffected. For a
-Diagram build specifically, also change `YACSS Bucket Keyword` -- it names
-the real cloud storage bucket, so an unchanged keyword with the same page
-titles overwrites the prior build's actual published pages, not just the
-local manifest entry.
+to keep both tracked side-by-side. For a Diagram build specifically, also
+change `YACSS Bucket Keyword` -- it names the real cloud storage bucket,
+so an unchanged keyword with the same page titles overwrites the prior
+build's actual published pages, not just the local manifest entry.
+
+Whenever `YACSS Job ID (override)` is left blank, **Export Job JSON**
+prompts with a "Confirm Job ID" dialog showing the auto-derived `job_id`,
+editable in place, before writing the file. Accepting the pre-filled
+value (e.g. clicking OK on a normal first export) behaves exactly as
+before; editing it exports under the new value without needing to go back
+and fill in the override field first; Cancel aborts the export. Filling in
+`YACSS Job ID (override)` permanently silences this prompt for that
+client.
 
 ### Google Maps Embed Code (Diagram and Masspage_Silo_Local only)
 Paste the full `<iframe ...>` HTML from Google Maps' **Share -> Embed a

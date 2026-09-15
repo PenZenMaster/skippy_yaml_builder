@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QTextEdit, QPushButton,
     QFileDialog, QMessageBox, QMenuBar, QMainWindow, QMenu, QListWidget, QListWidgetItem, QGridLayout,
     QScrollArea, QComboBox, QTableWidget, QTableWidgetItem, QAbstractItemView, QAbstractItemDelegate,
-    QDialog, QTextBrowser, QTabWidget, QProgressBar, QHeaderView, QSpinBox, QCheckBox
+    QDialog, QTextBrowser, QTabWidget, QProgressBar, QHeaderView, QSpinBox, QCheckBox, QInputDialog
 )
 from PyQt6.QtGui import QFont
 from PyQt6.QtCore import Qt
@@ -47,7 +47,7 @@ from silo_content_generator import (
 # running instance is identifiable, unlike the old hardcoded "v4" (a
 # leftover UI-redesign label, not a real version, that stopped being
 # updated years before this was added).
-__version__ = "0.9.0"
+__version__ = "0.9.1"
 
 README_PATH = Path(__file__).resolve().parent / "README.md"
 
@@ -1169,7 +1169,14 @@ class YAMLForm(QMainWindow):
         whether it's configured, since selecting an unconfigured one fails
         generation with a real 401 (confirmed live, see rr_yacss_factory's
         docs/projectStatus.md session-5 notes) with no other warning
-        anywhere in this form."""
+        anywhere in this form. Defaults the selection to "openai" when
+        nothing has been chosen yet -- confirmed live (rr_yacss_factory
+        GitHub issue #8) that "openrouter" silently produces zero real
+        per-page AI content (content_pages: 0) with `auto_content: "3"`,
+        while "openai" with the identical config produces real content;
+        leaving the combo on its blank first item let that get picked
+        by mistake, so this project doesn't use openrouter until YACSS
+        fixes it."""
         combo = self.inputs["YACSS AI Platform"]
         current = combo.currentText()
         combo.clear()
@@ -1188,6 +1195,10 @@ class YAMLForm(QMainWindow):
                 combo.setCurrentIndex(idx)
             else:
                 combo.setEditText(current)
+        else:
+            idx = combo.findText("openai", Qt.MatchFlag.MatchFixedString)
+            if idx >= 0:
+                combo.setCurrentIndex(idx)
 
     def _populate_ai_model_combo(self, platform: str = None):
         """Populates YACSS AI Model from self._ai_models, filtered to
@@ -2695,6 +2706,33 @@ class YAMLForm(QMainWindow):
             return
 
         job, warnings = build_job()
+
+        # GitHub #1: job_id previously always silently auto-derived from
+        # Client Name with no nudge to change it, so rebuilding the same
+        # client under an unchanged job_id silently overwrote
+        # rr_yacss_factory's manifest entry for the prior build. If the
+        # user hasn't already made a deliberate choice via "YACSS Job ID
+        # (override)", confirm the (editable) job_id right before export
+        # instead of only offering an easy-to-miss optional field.
+        if not self.inputs["YACSS Job ID (override)"].text().strip():
+            confirmed_job_id, ok = QInputDialog.getText(
+                self,
+                "Confirm Job ID",
+                "Job ID for this export (auto-generated from Client Name).\n"
+                "Rebuilding a client under the same Job ID overwrites the "
+                "prior build's entry in rr_yacss_factory -- edit this if "
+                "that isn't what you want:",
+                QLineEdit.EchoMode.Normal,
+                job["job_id"],
+            )
+            if not ok:
+                return
+            confirmed_job_id = confirmed_job_id.strip()
+            if not confirmed_job_id:
+                QMessageBox.warning(self, "Job ID Required", "Job ID cannot be blank.")
+                return
+            job["job_id"] = confirmed_job_id
+
         if warnings:
             reply = QMessageBox.question(
                 self,

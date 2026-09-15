@@ -1,8 +1,17 @@
 import json
 
-from PyQt6.QtWidgets import QFileDialog, QMessageBox, QTableWidgetItem
+from PyQt6.QtWidgets import QFileDialog, QInputDialog, QMessageBox, QTableWidgetItem
 
 from main import DEFAULT_JOB_EXPORT_DIR, YAMLForm
+
+
+def _accept_default_job_id(monkeypatch):
+    """Simulates clicking OK on the "Confirm Job ID" prompt without
+    editing the pre-filled (auto-derived) value -- the export-time prompt
+    added for GitHub #1 fires whenever "YACSS Job ID (override)" is blank,
+    so any export test not exercising that prompt directly needs this to
+    reach the save dialog at all."""
+    monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: (a[4], True))
 
 
 def _fill_required_fields(form):
@@ -597,6 +606,7 @@ def test_export_job_json_writes_listicle_job(qapp, tmp_path, monkeypatch):
     form.inputs["YACSS Items Per Listicle"].setText("6")
 
     out_file = tmp_path / "listicle-export.json"
+    _accept_default_job_id(monkeypatch)
     monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(out_file), ""))
 
     form.export_job_json()
@@ -617,6 +627,7 @@ def test_export_job_json_writes_masspage_job(qapp, tmp_path, monkeypatch):
     form.inputs["YACSS Diagram Content"].setPlainText("Acme Plumbing serves greater Dallas.")
 
     out_file = tmp_path / "masspage-export.json"
+    _accept_default_job_id(monkeypatch)
     monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(out_file), ""))
 
     form.export_job_json()
@@ -639,6 +650,7 @@ def test_export_job_json_defaults_save_dialog_to_rr_yacss_factory_jobs_dir(qapp,
     # "Yes" (proceed anyway) is required to reach the save dialog call at
     # all, which is what this test needs to observe.
     monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+    _accept_default_job_id(monkeypatch)
 
     def fake_save_dialog(*args, **kwargs):
         captured_default_path.append(args[2])
@@ -660,6 +672,7 @@ def test_export_job_json_writes_valid_json_when_warnings_accepted(qapp, tmp_path
 
     out_file = tmp_path / "export.json"
     monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+    _accept_default_job_id(monkeypatch)
     monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(out_file), ""))
 
     form.export_job_json()
@@ -682,3 +695,124 @@ def test_export_job_json_does_not_write_when_warnings_declined(qapp, tmp_path, m
     form.export_job_json()
 
     assert not out_file.exists()
+
+
+def test_export_job_json_prompts_for_job_id_when_override_blank(qapp, monkeypatch, tmp_path):
+    form = YAMLForm()
+    _fill_required_fields(form)
+    form.inputs["YACSS Tiers (tier:pages, one per line)"].setPlainText("1:3")
+    form.diagram_tier_accounts_table.setItem(0, 1, QTableWidgetItem("28205,27502"))
+    form.inputs["YACSS Diagram Page Titles (one per line)"].setPlainText(
+        "Home\nPage 1\nPage 2\nPage 3"
+    )
+    form.inputs["YACSS Diagram Content"].setPlainText("Some real content.")
+
+    prompt_calls = []
+
+    def fake_get_text(*args, **kwargs):
+        prompt_calls.append(args[4])
+        return (args[4], True)
+
+    monkeypatch.setattr(QInputDialog, "getText", fake_get_text)
+    out_file = tmp_path / "export.json"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(out_file), ""))
+
+    form.export_job_json()
+
+    assert prompt_calls == ["acme-plumbing"]
+    with open(out_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    assert data[0]["job_id"] == "acme-plumbing"
+
+
+def test_export_job_json_uses_edited_job_id_from_prompt(qapp, monkeypatch, tmp_path):
+    form = YAMLForm()
+    _fill_required_fields(form)
+    form.inputs["YACSS Tiers (tier:pages, one per line)"].setPlainText("1:3")
+    form.diagram_tier_accounts_table.setItem(0, 1, QTableWidgetItem("28205,27502"))
+    form.inputs["YACSS Diagram Page Titles (one per line)"].setPlainText(
+        "Home\nPage 1\nPage 2\nPage 3"
+    )
+    form.inputs["YACSS Diagram Content"].setPlainText("Some real content.")
+
+    monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: ("acme-plumbing-02", True))
+    out_file = tmp_path / "export.json"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(out_file), ""))
+
+    form.export_job_json()
+
+    with open(out_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    assert data[0]["job_id"] == "acme-plumbing-02"
+
+
+def test_export_job_json_aborts_when_job_id_prompt_cancelled(qapp, monkeypatch, tmp_path):
+    form = YAMLForm()
+    _fill_required_fields(form)
+    form.inputs["YACSS Tiers (tier:pages, one per line)"].setPlainText("1:3")
+    form.diagram_tier_accounts_table.setItem(0, 1, QTableWidgetItem("28205,27502"))
+    form.inputs["YACSS Diagram Page Titles (one per line)"].setPlainText(
+        "Home\nPage 1\nPage 2\nPage 3"
+    )
+    form.inputs["YACSS Diagram Content"].setPlainText("Some real content.")
+
+    monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: ("acme-plumbing", False))
+    save_dialog_called = []
+    monkeypatch.setattr(
+        QFileDialog,
+        "getSaveFileName",
+        lambda *a, **k: save_dialog_called.append(True) or (str(tmp_path / "x.json"), ""),
+    )
+
+    form.export_job_json()
+
+    assert save_dialog_called == []
+
+
+def test_export_job_json_rejects_blank_job_id_from_prompt(qapp, monkeypatch, tmp_path):
+    form = YAMLForm()
+    _fill_required_fields(form)
+    form.inputs["YACSS Tiers (tier:pages, one per line)"].setPlainText("1:3")
+    form.diagram_tier_accounts_table.setItem(0, 1, QTableWidgetItem("28205,27502"))
+    form.inputs["YACSS Diagram Page Titles (one per line)"].setPlainText(
+        "Home\nPage 1\nPage 2\nPage 3"
+    )
+    form.inputs["YACSS Diagram Content"].setPlainText("Some real content.")
+
+    monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: ("   ", True))
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: None)
+    save_dialog_called = []
+    monkeypatch.setattr(
+        QFileDialog,
+        "getSaveFileName",
+        lambda *a, **k: save_dialog_called.append(True) or (str(tmp_path / "x.json"), ""),
+    )
+
+    form.export_job_json()
+
+    assert save_dialog_called == []
+
+
+def test_export_job_json_skips_prompt_when_override_already_filled_in(qapp, monkeypatch, tmp_path):
+    form = YAMLForm()
+    _fill_required_fields(form)
+    form.inputs["YACSS Tiers (tier:pages, one per line)"].setPlainText("1:3")
+    form.diagram_tier_accounts_table.setItem(0, 1, QTableWidgetItem("28205,27502"))
+    form.inputs["YACSS Diagram Page Titles (one per line)"].setPlainText(
+        "Home\nPage 1\nPage 2\nPage 3"
+    )
+    form.inputs["YACSS Diagram Content"].setPlainText("Some real content.")
+    form.inputs["YACSS Job ID (override)"].setText("acme-plumbing-01")
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("Confirm Job ID prompt should not appear when override is filled in")
+
+    monkeypatch.setattr(QInputDialog, "getText", fail_if_called)
+    out_file = tmp_path / "export.json"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(out_file), ""))
+
+    form.export_job_json()
+
+    with open(out_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    assert data[0]["job_id"] == "acme-plumbing-01"

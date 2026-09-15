@@ -3,6 +3,22 @@
 All notable changes to this project are documented in this file. Format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.1] - 2026-09-14
+
+### Added
+
+- **Export-time "Confirm Job ID" prompt** (GitHub #1): v0.9.0's "YACSS Job
+  ID (override)" field fixed the underlying collision but was easy to
+  forget -- rebuilding a client with it left blank still silently
+  overwrote `rr_yacss_factory`'s manifest entry for the prior build under
+  the same auto-derived `job_id`. Export Job JSON now prompts with the
+  auto-derived `job_id` pre-filled (editable in place) whenever the
+  override field is blank; accepting the default proceeds exactly as
+  before (no behavior change for a first-time export), editing it exports
+  under the new value, and Cancel aborts the export entirely. Once "YACSS
+  Job ID (override)" is filled in, the prompt no longer appears -- that
+  field remains the way to permanently silence it for a given client.
+
 ## [0.9.0] - 2026-09-14
 
 ### Added
