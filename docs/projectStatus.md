@@ -1,8 +1,18 @@
 ## Resume From
 
-Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-09-14_0851.md`
-Last session: 2026-09-14
-Branch: main | Version: 0.9.0
+Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-09-23_1632.md`
+Last session: 2026-09-23
+Branch: main | Version: 0.10.0
+
+**2026-09-23**: v0.10.0 -- **"Content Image URLs (one per line)"** field
+(exports `content_image_urls`, warns on the `Content Image URL` combination
+and on more images than pages), **`Logo URL` now exports** as
+`logo_image_url` (existing client files with one filled in will start
+uploading it), and an **export-time 400KB image size check**
+(`image_size_check.py`, advisory, checks hero/logo/per-page images).
+v0.9.1's Job ID confirm prompt (`7eb2a27`) had also been committed without
+a checkpoint. 217/217 tests. Full detail in
+`docs/archive/checkpoints/CheckPoint-2026-09-23_1632.md`.
 
 **2026-09-14**: v0.8.0's PAA-driven FAQs and Select All checkboxes passed
 manual QA. Also found and committed a separate, already-complete v0.9.0
