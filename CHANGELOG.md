@@ -3,6 +3,31 @@
 All notable changes to this project are documented in this file. Format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.0] - 2026-09-23
+
+### Added
+
+- **"Content Image URLs (one per line)"** field (Content tab): exports as
+  `CloudStackJob.content_image_urls`, the per-page image list that
+  rr_yacss_factory (v1.19+) uploads and YACSS cycles across pages. Saved
+  as a YAML list like the other one-per-line fields; omitted from the job
+  entirely when blank, so existing exports are unchanged. Cloud Stack
+  (Diagram) exports only. The export warns (advisory, still writes the
+  file) when it is filled in together with `Content Image URL`, which
+  rr_yacss_factory rejects, and when it has more lines than the stack has
+  pages.
+- **"Logo URL" now exports** to `CloudStackJob.logo_image_url` (Cloud Stack
+  / Diagram only). The field was collected since v0.x but never read by
+  any export. Behavior change: an existing client file with `Logo URL`
+  filled in will now upload that logo on the next `rr_yacss_factory` run.
+- **Export-time image size check** (`image_size_check.py`): before writing
+  a Diagram job file, HEAD/GETs `Hero Image URL`, `Logo URL` and each
+  `Content Image URLs` line (the images rr_yacss_factory pushes through
+  YACSS's 400KB-capped `/uploads/image`) and adds an advisory warning for
+  any over the cap, returning an HTTP error, or unreachable. Parallel,
+  5-second timeout per image, never raises. `Content Image URL` (a direct
+  URL reference with no cap) is not checked.
+
 ## [0.9.1] - 2026-09-14
 
 ### Added

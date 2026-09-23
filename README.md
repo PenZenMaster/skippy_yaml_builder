@@ -300,11 +300,40 @@ image). Both are optional -- omit either to publish without it, same as
 every build before these fields existed. Leave blank for Listicle/Masspage
 builds; neither job type reads them.
 
+### Content Image URLs (one per line) (Diagram only)
+An optional per-page alternative to `Content Image URL`: paste one direct
+image URL per line and the export writes them to
+`CloudStackJob.content_image_urls`. rr_yacss_factory uploads each one and
+YACSS cycles them across the stack's pages (image 1 on page 1, image 2 on
+page 2, and back to image 1 once the list runs out). Use it instead of
+`Content Image URL`, not alongside it -- rr_yacss_factory rejects the
+combination, and the export warns about it. Each image must be a direct
+URL and no larger than 400KB. Known template side effect: every page also
+shows the first image in a second, fixed block. Leave blank to publish
+without per-page images.
+
+### Logo URL (Diagram only)
+Becomes `CloudStackJob.logo_image_url`, the stack's brand logo, which
+rr_yacss_factory uploads and sends to YACSS as `logo_image`. Optional;
+blank means no logo. Note: client files saved before this release that
+already have a `Logo URL` filled in will now export it, so the logo starts
+being uploaded on the next run of that job.
+
+### Image size check on export
+When you export a Diagram job, the builder checks `Hero Image URL`,
+`Logo URL` and every `Content Image URLs` line (all pushed through YACSS's
+image upload, capped at 400KB) and warns about any that is over the cap,
+returns an HTTP error, or can't be reached -- before the job file is
+written, instead of as a 413 partway through a run. The check is advisory
+(you can still export) and needs internet access; if a host is slow or
+blocks the check you get a "could not be checked" warning, not a failure.
+`Content Image URL` (single) is not checked -- it is a direct URL with no
+size cap.
+
 ### Fields with no effect yet
-`City Page Hero Image Base URL` and `Logo URL` are captured but not yet
-consumed by any downstream build step -- there's no established
-convention yet for exactly how they'd be used. Fill them in for future
-use, or leave blank.
+`City Page Hero Image Base URL` is captured but not yet consumed by any
+downstream build step -- there's no established convention yet for exactly
+how it would be used. Fill it in for future use, or leave blank.
 
 ## For developers
 

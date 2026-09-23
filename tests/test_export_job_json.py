@@ -816,3 +816,140 @@ def test_export_job_json_skips_prompt_when_override_already_filled_in(qapp, monk
     with open(out_file, "r", encoding="utf-8") as f:
         data = json.load(f)
     assert data[0]["job_id"] == "acme-plumbing-01"
+
+
+def test_build_cloud_stack_job_maps_content_image_urls_list(qapp):
+    form = YAMLForm()
+    _fill_required_fields(form)
+    form.inputs["YACSS Diagram Content"].setPlainText("content")
+    form.inputs["Content Image URLs (one per line)"].setPlainText(
+        "https://acmeplumbing.example/a.jpg\n\n  https://acmeplumbing.example/b.jpg  \n"
+    )
+
+    job, _ = form._build_cloud_stack_job()
+
+    assert job["content_image_urls"] == [
+        "https://acmeplumbing.example/a.jpg",
+        "https://acmeplumbing.example/b.jpg",
+    ]
+
+
+def test_build_cloud_stack_job_omits_content_image_urls_when_blank(qapp):
+    form = YAMLForm()
+    _fill_required_fields(form)
+    form.inputs["Content Image URLs (one per line)"].setPlainText("\n  \n")
+
+    job, _ = form._build_cloud_stack_job()
+
+    assert "content_image_urls" not in job
+
+
+def test_build_cloud_stack_job_warns_when_both_content_image_fields_filled(qapp):
+    form = YAMLForm()
+    _fill_required_fields(form)
+    form.inputs["Content Image URL"].setText("https://acmeplumbing.example/one.jpg")
+    form.inputs["Content Image URLs (one per line)"].setPlainText(
+        "https://acmeplumbing.example/a.jpg"
+    )
+
+    _, warnings = form._build_cloud_stack_job()
+
+    assert any("both filled in" in w for w in warnings)
+
+
+def test_build_cloud_stack_job_warns_when_more_images_than_pages(qapp):
+    form = YAMLForm()
+    _fill_required_fields(form)  # tier0_pages=1, no tiers -> 1 page total
+    form.inputs["Content Image URLs (one per line)"].setPlainText(
+        "https://acmeplumbing.example/a.jpg\nhttps://acmeplumbing.example/b.jpg"
+    )
+
+    _, warnings = form._build_cloud_stack_job()
+
+    assert any("2 line(s)" in w and "1 page(s)" in w for w in warnings)
+
+
+def test_content_image_urls_field_round_trips_through_save_and_load(
+    qapp, tmp_path, monkeypatch
+):
+    from PyQt6.QtWidgets import QFileDialog
+
+    import yaml
+
+    form = YAMLForm()
+    form.inputs["Content Image URLs (one per line)"].setPlainText(
+        "https://acmeplumbing.example/a.jpg\nhttps://acmeplumbing.example/b.jpg"
+    )
+    out_file = tmp_path / "out.yaml"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(out_file), ""))
+    form.save_yaml()
+
+    with open(out_file, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    assert data["Content Image URLs (one per line)"] == [
+        "https://acmeplumbing.example/a.jpg",
+        "https://acmeplumbing.example/b.jpg",
+    ]
+
+    reloaded = YAMLForm()
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *a, **k: (str(out_file), ""))
+    reloaded.load_yaml()
+    assert reloaded.inputs["Content Image URLs (one per line)"].toPlainText().splitlines() == [
+        "https://acmeplumbing.example/a.jpg",
+        "https://acmeplumbing.example/b.jpg",
+    ]
+
+
+def test_build_cloud_stack_job_maps_logo_url_to_logo_image_url(qapp):
+    form = YAMLForm()
+    _fill_required_fields(form)
+    form.inputs["Logo URL"].setText("https://acmeplumbing.example/logo.png")
+
+    job, _ = form._build_cloud_stack_job()
+
+    assert job["logo_image_url"] == "https://acmeplumbing.example/logo.png"
+
+
+def test_build_cloud_stack_job_omits_logo_image_url_when_blank(qapp):
+    form = YAMLForm()
+    _fill_required_fields(form)
+
+    job, _ = form._build_cloud_stack_job()
+
+    assert "logo_image_url" not in job
+
+
+def test_image_size_warnings_checks_uploaded_images_but_not_direct_content_url(
+    qapp, monkeypatch
+):
+    seen = []
+    monkeypatch.setattr(
+        "main.check_image_sizes", lambda items: seen.extend(items) or ["too big"]
+    )
+    form = YAMLForm()
+    job = {
+        "hero_image_url": "https://x.example/hero.jpg",
+        "logo_image_url": "https://x.example/logo.png",
+        "content_image_url": "https://x.example/direct.jpg",
+        "content_image_urls": ["https://x.example/a.jpg", "https://x.example/b.jpg"],
+    }
+
+    warnings = form._image_size_warnings(job)
+
+    assert warnings == ["too big"]
+    assert seen == [
+        ("Hero Image URL", "https://x.example/hero.jpg"),
+        ("Logo URL", "https://x.example/logo.png"),
+        ("Content Image URLs line 1", "https://x.example/a.jpg"),
+        ("Content Image URLs line 2", "https://x.example/b.jpg"),
+    ]
+
+
+def test_image_size_warnings_skips_network_when_no_uploaded_images(qapp, monkeypatch):
+    def fail(items):
+        raise AssertionError("must not be called with nothing to check")
+
+    monkeypatch.setattr("main.check_image_sizes", fail)
+    form = YAMLForm()
+
+    assert form._image_size_warnings({"content_image_url": "https://x.example/d.jpg"}) == []

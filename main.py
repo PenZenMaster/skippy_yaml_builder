@@ -14,6 +14,7 @@ import re
 import sys
 import yaml
 from city_embed_dialog import CityEmbedDialog
+from image_size_check import check_image_sizes
 from theme import ThemeManager
 from yacss_api import (
     fetch_templates,
@@ -47,7 +48,7 @@ from silo_content_generator import (
 # running instance is identifiable, unlike the old hardcoded "v4" (a
 # leftover UI-redesign label, not a real version, that stopped being
 # updated years before this was added).
-__version__ = "0.9.1"
+__version__ = "0.10.0"
 
 README_PATH = Path(__file__).resolve().parent / "README.md"
 
@@ -387,6 +388,7 @@ class YAMLForm(QMainWindow):
         "* Target Cities (one per line)",
         "* Services (one per line)",
         "Social/Citation URLs (one per line)",
+        "Content Image URLs (one per line)",
         "YACSS Diagram Page Titles (one per line)",
         "YACSS Competitor URLs (one per line)",
         "YACSS Target URLs (one per line)",
@@ -407,7 +409,7 @@ class YAMLForm(QMainWindow):
     CONTENT_FIELDS = [
         "Google Maps Embed Code", "* Target Cities (one per line)", "* Services (one per line)",
         "Social/Citation URLs (one per line)", "Hero Image URL", "Content Image URL",
-        "City Page Hero Image Base URL", "Logo URL", "Contact Email Address",
+        "Content Image URLs (one per line)", "City Page Hero Image Base URL", "Logo URL", "Contact Email Address",
         "Primary Business Category",
     ]
     YACSS_BUILD_FIELDS = [
@@ -553,6 +555,7 @@ class YAMLForm(QMainWindow):
             "Social/Citation URLs (one per line)": QTextEdit(),
             "Hero Image URL": QLineEdit(),
             "Content Image URL": QLineEdit(),
+            "Content Image URLs (one per line)": QTextEdit(),
             "City Page Hero Image Base URL": QLineEdit(),
             "Logo URL": QLineEdit(),
             "Contact Email Address": QLineEdit(),
@@ -2339,6 +2342,14 @@ class YAMLForm(QMainWindow):
         which rr_yacss_factory's own memory confirms silently renders
         ZERO FAQs on a live page (the working format was fixed there
         2026-09-04; this export path had never been updated to match).
+        Logo URL (Content tab) maps to CloudStackJob.logo_image_url (the
+        stack's brand logo, uploaded through POST /uploads/image like the
+        hero image) -- it was collected but never exported before.
+        Content Image URLs (one per line, Content tab) maps to
+        CloudStackJob.content_image_urls -- a per-page image list that
+        rr_yacss_factory uploads and cycles across pages (1, 2, 3, 1, ...);
+        it is rejected there together with Content Image URL, which this
+        method flags as an advisory warning.
         Hero Image URL/Content Image URL (Content tab) map straight to
         CloudStackJob.hero_image_url/content_image_url -- both real,
         confirmed-live fields (rr_yacss_factory's yacss-content-image-fix
@@ -2447,9 +2458,29 @@ class YAMLForm(QMainWindow):
         hero_image_url = self.inputs["Hero Image URL"].text().strip()
         if hero_image_url:
             job["hero_image_url"] = hero_image_url
+        logo_url = self.inputs["Logo URL"].text().strip()
+        if logo_url:
+            job["logo_image_url"] = logo_url
         content_image_url = self.inputs["Content Image URL"].text().strip()
         if content_image_url:
             job["content_image_url"] = content_image_url
+        content_image_urls = [
+            line.strip()
+            for line in self.inputs["Content Image URLs (one per line)"].toPlainText().splitlines()
+            if line.strip()
+        ]
+        if content_image_urls:
+            job["content_image_urls"] = content_image_urls
+            if content_image_url:
+                warnings.append(
+                    "Content Image URL and Content Image URLs are both filled in -- "
+                    "rr_yacss_factory rejects the combination; use one or the other"
+                )
+            if len(content_image_urls) > expected_total:
+                warnings.append(
+                    f"Content Image URLs has {len(content_image_urls)} line(s) but the "
+                    f"stack only has {expected_total} page(s) -- the extra images will never be used"
+                )
 
         # content_mode omitted entirely for the cheap/default option --
         # byte-for-byte the same export as before this field existed, so
@@ -2706,6 +2737,7 @@ class YAMLForm(QMainWindow):
             return
 
         job, warnings = build_job()
+        warnings.extend(self._image_size_warnings(job))
 
         # GitHub #1: job_id previously always silently auto-derived from
         # Client Name with no nudge to change it, so rebuilding the same
@@ -2757,6 +2789,29 @@ class YAMLForm(QMainWindow):
             QMessageBox.information(self, "Exported", f"Job JSON written to:\n{file_name}")
         except OSError as e:
             QMessageBox.critical(self, "Error", f"Failed to write job JSON:\n{e}")
+
+    def _image_size_warnings(self, job: dict) -> list:
+        """Advisory HEAD/GET check of the images rr_yacss_factory will push
+        through POST /uploads/image (hero, logo, per-page content images --
+        all capped at 400KB). content_image_url is deliberately skipped: it
+        is passed to YACSS as a direct URL reference with no size cap. Runs
+        only at export time (never inside _build_cloud_stack_job, which
+        stays offline) and only for Cloud Stack jobs, the only type that
+        carries these fields."""
+        items = []
+        if job.get("hero_image_url"):
+            items.append(("Hero Image URL", job["hero_image_url"]))
+        if job.get("logo_image_url"):
+            items.append(("Logo URL", job["logo_image_url"]))
+        for i, url in enumerate(job.get("content_image_urls", []), start=1):
+            items.append((f"Content Image URLs line {i}", url))
+        if not items:
+            return []
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            return check_image_sizes(items)
+        finally:
+            QApplication.restoreOverrideCursor()
 
     def _add_faq_row(self, question: str = "", answer: str = ""):
         row = self.faq_table.rowCount()

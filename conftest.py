@@ -39,3 +39,12 @@ def no_live_yacss_lookup(monkeypatch):
     monkeypatch.setattr("main.fetch_cloud_accounts", lambda: [])
     monkeypatch.setattr("main.fetch_ai_providers", lambda: [])
     monkeypatch.setattr("main.fetch_ai_models", lambda: [])
+
+
+@pytest.fixture(autouse=True)
+def no_live_image_size_check(monkeypatch):
+    """export_job_json runs an advisory HEAD/GET size check against any
+    hero/logo/per-page image URLs (main.check_image_sizes) -- stubbed to
+    [] by default so no test ever touches the network. Tests exercising
+    the export-time integration override this locally."""
+    monkeypatch.setattr("main.check_image_sizes", lambda items: [])
