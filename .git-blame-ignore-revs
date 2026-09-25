@@ -1,0 +1,5 @@
+# Mechanical formatting commits; skipped by git blame.
+# Enable with: git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# style: apply black and ruff --fix across the codebase
+9abb77c1fc99f9846f92f94ab7e76804427cca7b
