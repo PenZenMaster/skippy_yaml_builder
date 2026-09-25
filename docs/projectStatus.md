@@ -1,8 +1,11 @@
 ## Resume From
 
-Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-09-23_1632.md`
-Last session: 2026-09-23
+Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-09-25_0900.md`
+Last session: 2026-09-25
 Branch: main | Version: 0.10.0
+
+**2026-09-25**: no code changes. The v0.10.0 per-page image list was used for
+real in the factory (SARC job D); see the checkpoint.
 
 **2026-09-23**: v0.10.0 -- **"Content Image URLs (one per line)"** field
 (exports `content_image_urls`, warns on the `Content Image URL` combination
