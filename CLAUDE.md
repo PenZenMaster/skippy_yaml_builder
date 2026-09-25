@@ -68,6 +68,32 @@ Section 4, scoped to this repo:
   `origin/main` (`github.com/PenZenMaster/skippy_yaml_builder`), then
   confirm branch/commit state and list 3 bullets for next session.
 
+## Code decisions require the user's permission
+
+Never make a code decision on the user's behalf. Whenever there is more
+than one reasonable way to implement something, stop before editing and
+present the options with `AskUserQuestion`, then wait for the user's
+selection. This covers design and approach choices (data source, algorithm,
+where logic lives), behavior on failure or edge cases, scope (what is and
+isn't included), new dependencies, and any change to existing behavior or
+public shape (field names, YAML/JSON output, UI layout).
+
+For each option, state:
+
+- **What it does**: one or two sentences, concrete.
+- **Expected result**: what the user will see or get, including
+  trade-offs, risks, and what it leaves unhandled.
+
+Lead with a recommended option (marked "(Recommended)") and say why, but
+do not act on it until the user selects. Do not bundle a decision into a
+larger patch and announce it afterwards, and do not treat an earlier
+approval of one option as approval of a different one.
+
+This does not apply to choices that are mechanical and have a single
+right answer (matching the surrounding code's style, fixing a typo,
+following an explicit instruction the user already gave). If unsure whether
+something is a decision, treat it as one and ask.
+
 ## Notes specific to this codebase
 
 - `main.py` has no versioned file header (predates that global CLAUDE.md
