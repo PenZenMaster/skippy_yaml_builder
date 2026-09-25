@@ -25,14 +25,25 @@ sibling layout ever changes, update `RR_YACSS_FACTORY_ENV` in
 ## Quality gate
 
 ```bash
-pytest -q
+venv/Scripts/ruff.exe check --fix . && venv/Scripts/black.exe . && venv/Scripts/mypy.exe . && venv/Scripts/pytest.exe -q
 ```
 
-This project has no `ruff`/`black`/`mypy` configuration (unlike the global
-CLAUDE.md's default Python gate) -- `pytest -q` is the real, complete gate
-today. If linting/type-checking is ever added, update this section and the
-global gate's expectations together, don't silently diverge from what's
-actually enforced.
+This matches the global CLAUDE.md's default Python gate. Configuration
+lives in `pyproject.toml` (added 2026-09-25); the tools are in
+`requirements-dev.txt`. Scope is deliberately conservative -- if you want
+to widen it, change `pyproject.toml` and this section together rather than
+letting them diverge:
+
+- **ruff**: `E4`, `E7`, `E9`, `F`, `I` only (correctness + import sorting).
+  Style-opinion rules (`E501`, `SIM`, `RUF`, `BLE`) are not enforced.
+- **black**: defaults (88 cols). Skips everything in `.gitignore`.
+- **mypy**: default strictness, `ignore_missing_imports = true`; bodies of
+  unannotated functions are not checked. Excludes `venv/`, `source/`,
+  `build/`, `dist/`, `client_yaml/`.
+- **pytest**: unchanged.
+
+`ruff --fix` and `black` rewrite files -- run them before committing, not
+after, so the commit contains the formatted result.
 
 Only one venv exists in the repo root: `venv/` (canonical, documented in
 README.md). An undocumented second `.venv/` briefly existed with a stale

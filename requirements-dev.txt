@@ -1,2 +1,6 @@
 -r requirements.txt
 pytest
+ruff
+black
+mypy
+types-PyYAML

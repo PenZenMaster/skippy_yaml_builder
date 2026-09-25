@@ -352,11 +352,11 @@ pip install -r requirements.txt
 python main.py
 ```
 
-To run tests:
+To run the full QA gate (lint, format, type-check, tests):
 ```cmd
 venv\Scripts\activate
 pip install -r requirements-dev.txt
-pytest
+ruff check --fix . && black . && mypy . && pytest -q
 ```
 
 See `CLAUDE.md` for this project's own conventions, and `CHANGELOG.md`

@@ -33,6 +33,7 @@ Comments:
 """
 
 from pathlib import Path
+from typing import Optional
 
 from dotenv import dotenv_values
 
@@ -215,7 +216,7 @@ def generate_service_page_content(
     page_topic: str,
     page_kind: str,
     silo_topic: str = "",
-    child_topics: list = None,
+    child_topics: Optional[list] = None,
     tone: str = "",
 ) -> dict:
     """Generates real, landing-page-depth prose for one silo page --

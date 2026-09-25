@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 import re
 import sys
+from typing import Optional
 import yaml
 from city_embed_dialog import CityEmbedDialog
 from image_size_check import check_image_sizes
@@ -135,6 +136,8 @@ class _PercentColumnTableWidget(QTableWidget):
         super().__init__(rows, len(column_percents), parent)
         self._column_percents = column_percents
         header = self.horizontalHeader()
+        if header is None:
+            return
         for col in range(len(column_percents)):
             header.setSectionResizeMode(col, QHeaderView.ResizeMode.Fixed)
 
@@ -256,7 +259,7 @@ class _CloudAccountPickerDialog(QDialog):
         ids = []
         for i in range(self.list_widget.count()):
             item = self.list_widget.item(i)
-            if item.checkState() == Qt.CheckState.Checked:
+            if item is not None and item.checkState() == Qt.CheckState.Checked:
                 ids.append(item.data(Qt.ItemDataRole.UserRole))
         return ids
 
@@ -277,7 +280,7 @@ class _AIGeneratedTextDialog(QDialog):
         content: str,
         regenerate_callback,
         parent=None,
-        required_line_count: int = None,
+        required_line_count: Optional[int] = None,
     ):
         super().__init__(parent)
         self.regenerate_callback = regenerate_callback
@@ -1203,7 +1206,7 @@ class YAMLForm(QMainWindow):
             if idx >= 0:
                 combo.setCurrentIndex(idx)
 
-    def _populate_ai_model_combo(self, platform: str = None):
+    def _populate_ai_model_combo(self, platform: Optional[str] = None):
         """Populates YACSS AI Model from self._ai_models, filtered to
         whichever provider is currently in YACSS AI Platform (or the
         `platform` arg, when called directly as that combo's
