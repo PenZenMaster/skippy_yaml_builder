@@ -1,8 +1,19 @@
 ## Resume From
 
-Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-09-25_1404.md`
-Last session: 2026-09-25 (afternoon)
-Branch: main | Version: 0.10.0
+Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-09-25_1423.md`
+Last session: 2026-09-25 (afternoon, part 2)
+Branch: main | Version: 0.10.0 (+ `[Unreleased]` changelog entry)
+
+**2026-09-25 (afternoon, part 2)**: Diagram Content "Generate with AI" now
+produces at least **750 rendered words** (spintax counted at each group's
+shortest option; up to 3 attempts, longest kept; 6,000-token floor; live
+word counter in the preview dialog) -- `f76324e`. The AI Model dropdown
+needed no change: it is already filled from YACSS's live `/ai-models`
+(7 OpenAI models), and the user chose to keep it mirroring YACSS. New
+`CLAUDE.md` rule: present options with expected results and wait for the
+user's selection before any code decision. 227/227 tests, pushed. **Next:
+verify a real Generate with AI run reaches 750 words.** Detail in the
+checkpoint.
 
 **2026-09-25 (afternoon)**: QA gate is now `ruff check --fix . && black . &&
 mypy . && pytest -q` (config in `pyproject.toml`, tools in
