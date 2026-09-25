@@ -15,5 +15,7 @@ def test_every_input_field_appears_in_exactly_one_tab_field_list(qapp):
 
     form = YAMLForm()
 
-    assert sorted(tab_fields) == sorted(set(tab_fields)), "a field key is listed on more than one tab"
+    assert sorted(tab_fields) == sorted(
+        set(tab_fields)
+    ), "a field key is listed on more than one tab"
     assert set(tab_fields) == set(form.inputs.keys())

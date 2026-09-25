@@ -1,7 +1,7 @@
 import re
 
 import main
-from main import HelpDialog, README_PATH, YAMLForm
+from main import HelpDialog, YAMLForm
 
 
 def test_version_looks_like_semver():
@@ -25,7 +25,9 @@ def test_help_dialog_renders_readme_content(qapp):
     assert "YACSS Build Type" in text
 
 
-def test_help_dialog_degrades_gracefully_when_readme_is_missing(qapp, monkeypatch, tmp_path):
+def test_help_dialog_degrades_gracefully_when_readme_is_missing(
+    qapp, monkeypatch, tmp_path
+):
     monkeypatch.setattr(main, "README_PATH", tmp_path / "does-not-exist.md")
     dialog = HelpDialog()
     browser = dialog.findChild(main.QTextBrowser)

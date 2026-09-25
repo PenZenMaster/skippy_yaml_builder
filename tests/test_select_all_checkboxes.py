@@ -29,14 +29,22 @@ def test_keyword_research_select_all_checks_every_row(qapp):
     form = YAMLForm()
     form.inputs["YACSS Build Type"].setCurrentText("Diagram")
     form.inputs["YACSS Bucket Keyword"].setText("garage door repair")
-    with patch("main.fetch_clusters", return_value=[_cluster("A"), _cluster("B"), _cluster("C")]):
+    with patch(
+        "main.fetch_clusters",
+        return_value=[_cluster("A"), _cluster("B"), _cluster("C")],
+    ):
         form._run_keyword_research()
 
     form.keyword_research_select_all_checkbox.setChecked(True)
-    assert _row_states(form.keyword_research_results_table) == [Qt.CheckState.Checked] * 3
+    assert (
+        _row_states(form.keyword_research_results_table) == [Qt.CheckState.Checked] * 3
+    )
 
     form.keyword_research_select_all_checkbox.setChecked(False)
-    assert _row_states(form.keyword_research_results_table) == [Qt.CheckState.Unchecked] * 3
+    assert (
+        _row_states(form.keyword_research_results_table)
+        == [Qt.CheckState.Unchecked] * 3
+    )
 
 
 def test_keyword_research_select_all_updates_the_selection_count_label(qapp):
@@ -64,13 +72,19 @@ def test_keyword_research_select_all_resets_on_new_results(qapp):
         form._run_keyword_research()
 
     assert form.keyword_research_select_all_checkbox.isChecked() is False
-    assert _row_states(form.keyword_research_results_table) == [Qt.CheckState.Unchecked] * 2
+    assert (
+        _row_states(form.keyword_research_results_table)
+        == [Qt.CheckState.Unchecked] * 2
+    )
 
 
 def test_silo_categories_select_all_checks_every_row(qapp):
     form = YAMLForm()
     form.silo_seed_input.setText("garage door services")
-    with patch("main.fetch_clusters", return_value=[_cluster("Repair"), _cluster("Installation")]):
+    with patch(
+        "main.fetch_clusters",
+        return_value=[_cluster("Repair"), _cluster("Installation")],
+    ):
         form._run_silo_category_research()
 
     form.silo_categories_select_all_checkbox.setChecked(True)

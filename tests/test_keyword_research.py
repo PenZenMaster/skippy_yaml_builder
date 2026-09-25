@@ -24,7 +24,15 @@ def _kw(
     possible_brand=None,
     off_target_location=False,
 ):
-    seed_tokens = {"chimney", "cleaning", "service", "garage", "door", "repair", "commercial"}
+    seed_tokens = {
+        "chimney",
+        "cleaning",
+        "service",
+        "garage",
+        "door",
+        "repair",
+        "commercial",
+    }
     return {
         "keyword": keyword,
         "search_volume": search_volume,
@@ -57,8 +65,14 @@ def test_is_possible_brand_keyword_flags_a_real_competitor_name():
 
 def test_is_possible_brand_keyword_does_not_flag_known_generic_modifiers():
     seed_tokens = {"chimney", "cleaning", "service"}
-    assert is_possible_brand_keyword(seed_tokens, "affordable chimney sweep near me") is False
-    assert is_possible_brand_keyword(seed_tokens, "residential chimney cleaning near me") is False
+    assert (
+        is_possible_brand_keyword(seed_tokens, "affordable chimney sweep near me")
+        is False
+    )
+    assert (
+        is_possible_brand_keyword(seed_tokens, "residential chimney cleaning near me")
+        is False
+    )
 
 
 def test_is_possible_brand_keyword_multi_seed_fix_recognizes_colloquial_synonym():
@@ -75,7 +89,11 @@ def test_is_possible_brand_keyword_multi_seed_fix_recognizes_colloquial_synonym(
 def test_cluster_keywords_groups_by_core_keyword_first():
     seed_tokens = {"chimney", "cleaning", "service"}
     keywords = [
-        _kw("chimney cleaning service", search_volume=33100, core_keyword="chimney cleaning services"),
+        _kw(
+            "chimney cleaning service",
+            search_volume=33100,
+            core_keyword="chimney cleaning services",
+        ),
     ]
     clusters = cluster_keywords(seed_tokens, _NO_LOCAL_TOKENS, keywords)
     assert len(clusters) == 1
@@ -119,7 +137,9 @@ def test_cluster_keywords_excludes_brand_keyword_from_candidate_title_when_alter
     ]
     clusters = cluster_keywords(seed_tokens, _NO_LOCAL_TOKENS, keywords)
     sweep_cluster = next(
-        c for c in clusters if any(kw["keyword"] == "billy sweet chimney sweep" for kw in c["keywords"])
+        c
+        for c in clusters
+        if any(kw["keyword"] == "billy sweet chimney sweep" for kw in c["keywords"])
     )
     assert len(sweep_cluster["keywords"]) == 3
     assert sweep_cluster["candidate_page_title"] != "Billy Sweet Chimney Sweep"
@@ -231,7 +251,9 @@ def test_fetch_clusters_parses_the_real_dataforseo_field_path():
     assert clusters[0]["keywords"][0]["search_volume"] == 33100
 
 
-def test_run_keyword_research_shows_a_message_when_dataforseo_returns_zero_results(qapp):
+def test_run_keyword_research_shows_a_message_when_dataforseo_returns_zero_results(
+    qapp,
+):
     # Confirmed live 2026-09-05: DataForSEO can genuinely return zero
     # related keywords for an overly niche/uncommon exact phrase (e.g.
     # "commercial rollup door service" -- not even the seed itself gets
@@ -241,9 +263,10 @@ def test_run_keyword_research_shows_a_message_when_dataforseo_returns_zero_resul
     form.inputs["YACSS Build Type"].setCurrentText("Diagram")
     form.inputs["YACSS Bucket Keyword"].setText("commercial rollup door service")
 
-    with patch("main.fetch_clusters", return_value=[]), patch.object(
-        QMessageBox, "information"
-    ) as mock_information:
+    with (
+        patch("main.fetch_clusters", return_value=[]),
+        patch.object(QMessageBox, "information") as mock_information,
+    ):
         form._run_keyword_research()
 
     assert form.keyword_research_results_table.rowCount() == 0
@@ -253,7 +276,9 @@ def test_run_keyword_research_shows_a_message_when_dataforseo_returns_zero_resul
 
 def test_local_location_tokens_resolves_state_abbreviation_and_target_cities():
     tokens = local_location_tokens("IL", ["Joliet, IL", "Aurora, IL"])
-    assert "illinoi" in tokens  # "illinois" through the same normalizer LOCATION_WORDS uses
+    assert (
+        "illinoi" in tokens
+    )  # "illinois" through the same normalizer LOCATION_WORDS uses
     assert "joliet" in tokens
     assert "aurora" in tokens
 
@@ -264,7 +289,12 @@ def test_is_off_target_location_flags_a_state_the_client_does_not_serve():
     # california" -- the brand filter doesn't catch this (LOCATION_WORDS
     # already excuses any known location from looking like a brand name).
     local_tokens = local_location_tokens("IL", ["Joliet, IL"])
-    assert is_off_target_location(local_tokens, "affordable garage door repair near california") is True
+    assert (
+        is_off_target_location(
+            local_tokens, "affordable garage door repair near california"
+        )
+        is True
+    )
 
 
 def test_is_off_target_location_does_not_flag_the_clients_own_state_or_city():
@@ -275,7 +305,10 @@ def test_is_off_target_location_does_not_flag_the_clients_own_state_or_city():
 
 def test_is_off_target_location_does_not_flag_a_keyword_with_no_location_at_all():
     local_tokens = local_location_tokens("IL", ["Joliet, IL"])
-    assert is_off_target_location(local_tokens, "affordable garage door repair near me") is False
+    assert (
+        is_off_target_location(local_tokens, "affordable garage door repair near me")
+        is False
+    )
 
 
 def test_cluster_keywords_flags_and_replaces_an_off_target_location_title():
@@ -302,7 +335,10 @@ def test_cluster_keywords_flags_and_replaces_an_off_target_location_title():
     )
     # Confirmed live: without this fix, the highest-volume member would win
     # regardless of relevance -- the off-target one is 500 vs. 90.
-    assert off_target_cluster["candidate_page_title"] != "Affordable Garage Door Repair Near California"
+    assert (
+        off_target_cluster["candidate_page_title"]
+        != "Affordable Garage Door Repair Near California"
+    )
     assert off_target_cluster["candidate_page_title_flagged"] is False
 
 
@@ -334,7 +370,10 @@ def test_cluster_keywords_flag_reason_combines_brand_and_off_target_location():
         ),
     ]
     clusters = cluster_keywords(seed_tokens, local_tokens, keywords)
-    assert clusters[0]["candidate_page_title_flag_reason"] == "possible brand + off-target location"
+    assert (
+        clusters[0]["candidate_page_title_flag_reason"]
+        == "possible brand + off-target location"
+    )
 
 
 def _serp_organic_envelope(items):
@@ -359,8 +398,14 @@ def test_fetch_people_also_ask_parses_the_real_dataforseo_field_path():
                 {
                     "type": "people_also_ask",
                     "items": [
-                        {"type": "people_also_ask_element", "title": "How much does garage door repair cost?"},
-                        {"type": "people_also_ask_element", "title": "How long does garage door repair take?"},
+                        {
+                            "type": "people_also_ask_element",
+                            "title": "How much does garage door repair cost?",
+                        },
+                        {
+                            "type": "people_also_ask_element",
+                            "title": "How long does garage door repair take?",
+                        },
                     ],
                 },
             ]
@@ -380,7 +425,9 @@ def test_fetch_people_also_ask_returns_empty_list_when_no_paa_box():
     # Confirmed via the analogous fetch_related_keywords case: Google can
     # genuinely show no PAA box at all for a niche seed -- a real data
     # gap, not a bug.
-    response = _fake_response(_serp_organic_envelope([{"type": "organic", "title": "Just organic results"}]))
+    response = _fake_response(
+        _serp_organic_envelope([{"type": "organic", "title": "Just organic results"}])
+    )
     with patch("keyword_research_api._load_config", return_value=("login", "password")):
         with patch("keyword_research_api.requests.post", return_value=response):
             questions = fetch_people_also_ask("an overly niche uncommon phrase")

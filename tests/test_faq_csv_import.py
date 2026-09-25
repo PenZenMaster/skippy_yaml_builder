@@ -25,7 +25,12 @@ def test_parse_faq_csv_treats_first_row_as_data_when_not_a_header():
 
 
 def test_parse_faq_csv_skips_blank_question_rows():
-    rows = [["Q1?", "A1."], ["", "orphaned answer"], ["  ", "also blank"], ["Q2?", "A2."]]
+    rows = [
+        ["Q1?", "A1."],
+        ["", "orphaned answer"],
+        ["  ", "also blank"],
+        ["Q2?", "A2."],
+    ]
     assert parse_faq_csv(rows) == [
         {"question": "Q1?", "answer": "A1."},
         {"question": "Q2?", "answer": "A2."},
@@ -41,7 +46,9 @@ def test_parse_faq_csv_rejoins_extra_columns_into_the_answer():
     # An unquoted comma inside the answer produces extra columns rather
     # than losing data -- rejoin instead of silently dropping it.
     rows = [["Q1?", "First part", "second part"]]
-    assert parse_faq_csv(rows) == [{"question": "Q1?", "answer": "First part,second part"}]
+    assert parse_faq_csv(rows) == [
+        {"question": "Q1?", "answer": "First part,second part"}
+    ]
 
 
 def test_parse_faq_csv_handles_empty_input():
@@ -59,7 +66,7 @@ def test_parse_faq_csv_skips_completely_empty_rows():
 def test_import_faq_csv_populates_table(qapp, tmp_path, monkeypatch):
     csv_file = tmp_path / "faqs.csv"
     csv_file.write_text(
-        "Question,Answer\nHow long?,2-4 hours.\nDo you offer warranty?,\"Yes, 5 years.\"\n",
+        'Question,Answer\nHow long?,2-4 hours.\nDo you offer warranty?,"Yes, 5 years."\n',
         encoding="utf-8",
     )
     form = YAMLForm()
@@ -114,7 +121,9 @@ def test_import_faq_csv_does_nothing_when_dialog_is_cancelled(qapp, monkeypatch)
     assert form.faq_table.rowCount() == 0
 
 
-def test_import_faq_csv_warns_on_empty_file_without_crashing(qapp, tmp_path, monkeypatch):
+def test_import_faq_csv_warns_on_empty_file_without_crashing(
+    qapp, tmp_path, monkeypatch
+):
     csv_file = tmp_path / "empty.csv"
     csv_file.write_text("", encoding="utf-8")
     form = YAMLForm()

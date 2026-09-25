@@ -141,7 +141,9 @@ def test_generate_service_page_content_category_prompt_mentions_children(monkeyp
     assert "CATEGORY" in prompt
 
 
-def test_generate_service_page_content_raises_when_response_has_no_title_or_body(monkeypatch):
+def test_generate_service_page_content_raises_when_response_has_no_title_or_body(
+    monkeypatch,
+):
     _configure(monkeypatch)
     _install_fake_client(monkeypatch, content="I could not think of anything.")
 

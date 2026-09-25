@@ -1,47 +1,80 @@
-
-from PyQt6.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QTextEdit, QPushButton,
-    QFileDialog, QMessageBox, QMenuBar, QMainWindow, QMenu, QListWidget, QListWidgetItem, QGridLayout,
-    QScrollArea, QComboBox, QTableWidget, QTableWidgetItem, QAbstractItemView, QAbstractItemDelegate,
-    QDialog, QTextBrowser, QTabWidget, QProgressBar, QHeaderView, QSpinBox, QCheckBox, QInputDialog
-)
-from PyQt6.QtGui import QFont
-from PyQt6.QtCore import Qt
 import csv
 import json
-from pathlib import Path
 import re
 import sys
+from pathlib import Path
 from typing import Optional
+
 import yaml
-from city_embed_dialog import CityEmbedDialog
-from image_size_check import check_image_sizes
-from theme import ThemeManager
-from yacss_api import (
-    fetch_templates,
-    fetch_cloud_accounts,
-    fetch_ai_providers,
-    fetch_ai_models,
-    YacssApiError,
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont
+from PyQt6.QtWidgets import (
+    QAbstractItemDelegate,
+    QAbstractItemView,
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QFileDialog,
+    QGridLayout,
+    QHBoxLayout,
+    QHeaderView,
+    QInputDialog,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMainWindow,
+    QMenu,
+    QMenuBar,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QScrollArea,
+    QSpinBox,
+    QTableWidget,
+    QTableWidgetItem,
+    QTabWidget,
+    QTextBrowser,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
+
+from ai_content_generator import (
+    AiContentError,
+    generate_diagram_content,
+    generate_diagram_page_titles,
+    generate_faq_answers,
 )
 from ai_content_generator import (
-    generate_diagram_page_titles,
-    generate_diagram_content,
-    generate_faq_answers,
     is_available as ai_content_is_available,
-    AiContentError,
 )
+from city_embed_dialog import CityEmbedDialog
+from image_size_check import check_image_sizes
 from keyword_research_api import (
+    MAX_PAA_QUESTIONS,
+    KeywordResearchError,
     fetch_clusters,
     fetch_people_also_ask,
     local_location_tokens,
-    KeywordResearchError,
-    MAX_PAA_QUESTIONS,
+)
+from silo_content_generator import (
+    AiContentError as SiloContentError,
 )
 from silo_content_generator import (
     generate_service_page_content,
+)
+from silo_content_generator import (
     is_available as silo_content_is_available,
-    AiContentError as SiloContentError,
+)
+from theme import ThemeManager
+from yacss_api import (
+    YacssApiError,
+    fetch_ai_models,
+    fetch_ai_providers,
+    fetch_cloud_accounts,
+    fetch_templates,
 )
 
 # Bumped by hand alongside CHANGELOG.md -- see that file for what changed
@@ -62,9 +95,13 @@ README_PATH = Path(__file__).resolve().parent / "README.md"
 # Falls back to this file's own directory if that folder doesn't exist
 # (e.g. rr_yacss_factory not checked out on this machine) rather than
 # pointing the save dialog at a nonexistent path.
-_RR_YACSS_FACTORY_JOBS_DIR = Path(__file__).resolve().parent.parent / "rr_yacss_factory" / "jobs"
+_RR_YACSS_FACTORY_JOBS_DIR = (
+    Path(__file__).resolve().parent.parent / "rr_yacss_factory" / "jobs"
+)
 DEFAULT_JOB_EXPORT_DIR = (
-    _RR_YACSS_FACTORY_JOBS_DIR if _RR_YACSS_FACTORY_JOBS_DIR.is_dir() else Path(__file__).resolve().parent
+    _RR_YACSS_FACTORY_JOBS_DIR
+    if _RR_YACSS_FACTORY_JOBS_DIR.is_dir()
+    else Path(__file__).resolve().parent
 )
 
 
@@ -231,13 +268,19 @@ class _CloudAccountPickerDialog(QDialog):
         self.list_widget.setFixedHeight(220)
         selected = set(selected_ids)
         for account in accounts:
-            label_parts = [account["id"], account.get("provider", ""), account.get("name", "")]
+            label_parts = [
+                account["id"],
+                account.get("provider", ""),
+                account.get("name", ""),
+            ]
             if account.get("client"):
                 label_parts.append(f"(client: {account['client']})")
             item = QListWidgetItem(" -- ".join(part for part in label_parts if part))
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(
-                Qt.CheckState.Checked if account["id"] in selected else Qt.CheckState.Unchecked
+                Qt.CheckState.Checked
+                if account["id"] in selected
+                else Qt.CheckState.Unchecked
             )
             item.setData(Qt.ItemDataRole.UserRole, account["id"])
             self.list_widget.addItem(item)
@@ -352,7 +395,11 @@ class _AIGeneratedTextDialog(QDialog):
         if self.count_label is None:
             return
         current = len(
-            [line for line in self.content_preview.toPlainText().splitlines() if line.strip()]
+            [
+                line
+                for line in self.content_preview.toPlainText().splitlines()
+                if line.strip()
+            ]
         )
         required = self.required_line_count
         if current == required:
@@ -405,26 +452,58 @@ class YAMLForm(QMainWindow):
     # one QGridLayout each, both to keep any one screen shorter and to
     # group genuinely related fields together -- see _build_field_grid.
     CLIENT_INFO_FIELDS = [
-        "* Client Name", "Legal / Company Name", "* Business Category", "* Phone", "Email",
-        "* Website", "Street Address", "City", "State", "ZIP", "Country",
-        "Broker Name", "Broker Website", "Broker Phone",
+        "* Client Name",
+        "Legal / Company Name",
+        "* Business Category",
+        "* Phone",
+        "Email",
+        "* Website",
+        "Street Address",
+        "City",
+        "State",
+        "ZIP",
+        "Country",
+        "Broker Name",
+        "Broker Website",
+        "Broker Phone",
     ]
     CONTENT_FIELDS = [
-        "Google Maps Embed Code", "* Target Cities (one per line)", "* Services (one per line)",
-        "Social/Citation URLs (one per line)", "Hero Image URL", "Content Image URL",
-        "Content Image URLs (one per line)", "City Page Hero Image Base URL", "Logo URL", "Contact Email Address",
+        "Google Maps Embed Code",
+        "* Target Cities (one per line)",
+        "* Services (one per line)",
+        "Social/Citation URLs (one per line)",
+        "Hero Image URL",
+        "Content Image URL",
+        "Content Image URLs (one per line)",
+        "City Page Hero Image Base URL",
+        "Logo URL",
+        "Contact Email Address",
         "Primary Business Category",
     ]
     YACSS_BUILD_FIELDS = [
-        "YACSS Build Type", "YACSS Template", "YACSS Job ID (override)",
-        "YACSS Bucket Keyword", "YACSS Topic Keyword",
-        "YACSS Tier0 Pages", "YACSS Tiers (tier:pages, one per line)", "YACSS AI Platform",
-        "YACSS AI Model", "YACSS Tone", "YACSS Language", "YACSS Items Per Listicle",
-        "YACSS Brand Name", "YACSS Brand URL", "YACSS Brand Position",
-        "YACSS Competitor URLs (one per line)", "YACSS Target URLs (one per line)",
-        "YACSS Diagram Page Titles (one per line)", "YACSS Diagram Content",
-        "YACSS Text Before Target Link", "YACSS Text Of Target Link",
-        "YACSS Text After Target Link", "YACSS Listicle Display Title",
+        "YACSS Build Type",
+        "YACSS Template",
+        "YACSS Job ID (override)",
+        "YACSS Bucket Keyword",
+        "YACSS Topic Keyword",
+        "YACSS Tier0 Pages",
+        "YACSS Tiers (tier:pages, one per line)",
+        "YACSS AI Platform",
+        "YACSS AI Model",
+        "YACSS Tone",
+        "YACSS Language",
+        "YACSS Items Per Listicle",
+        "YACSS Brand Name",
+        "YACSS Brand URL",
+        "YACSS Brand Position",
+        "YACSS Competitor URLs (one per line)",
+        "YACSS Target URLs (one per line)",
+        "YACSS Diagram Page Titles (one per line)",
+        "YACSS Diagram Content",
+        "YACSS Text Before Target Link",
+        "YACSS Text Of Target Link",
+        "YACSS Text After Target Link",
+        "YACSS Listicle Display Title",
     ]
     # Lives on the new "Keyword Research" tab (see _build_tabs), not the
     # YACSS Build tab, but still tracked through the generic self.inputs
@@ -452,8 +531,17 @@ class YAMLForm(QMainWindow):
     # the combo stays editable so an unconfirmed/future value can still be
     # typed and preserved.
     TONE_OPTIONS = [
-        "", "Conversational", "ProfessionalWarm", "Authoritative", "Empathetic",
-        "Witty", "Inspirational", "Persuasive", "Relatable", "Educational", "Urgent",
+        "",
+        "Conversational",
+        "ProfessionalWarm",
+        "Authoritative",
+        "Empathetic",
+        "Witty",
+        "Inspirational",
+        "Persuasive",
+        "Relatable",
+        "Educational",
+        "Urgent",
     ]
 
     def __init__(self):
@@ -667,7 +755,7 @@ class YAMLForm(QMainWindow):
         # dict literal above, to keep that dict a plain widget-per-key
         # mapping.
         self.placeholders = {
-            "Legal / Company Name": "optional -- only if different from * Client Name (e.g. \"Acme Plumbing & Associates LLC\")",
+            "Legal / Company Name": 'optional -- only if different from * Client Name (e.g. "Acme Plumbing & Associates LLC")',
             "YACSS Job ID (override)": "blank = auto-generate from Client Name; set/bump this (and YACSS Bucket Keyword) before rebuilding the same client to avoid overwriting the prior build, e.g. acme-plumbing-01",
             "YACSS Template": "e.g. porto-001",
             "YACSS Bucket Keyword": "themed micro-site name -- becomes the real cloud bucket name",
@@ -688,7 +776,7 @@ class YAMLForm(QMainWindow):
             "YACSS Text Before Target Link": "e.g. Visit",
             "YACSS Text Of Target Link": "e.g. Acme Plumbing",
             "YACSS Text After Target Link": "e.g. to learn more about emergency plumbing in Dallas",
-            "YACSS Listicle Display Title": "optional -- only if different from * Client Name (e.g. \"Best Plumbers in Dallas, TX\")",
+            "YACSS Listicle Display Title": 'optional -- only if different from * Client Name (e.g. "Best Plumbers in Dallas, TX")',
         }
 
         self.menu_bar = QMenuBar()
@@ -726,7 +814,9 @@ class YAMLForm(QMainWindow):
             "extra/manual account IDs, comma separated -- use if the account "
             "isn't listed above or the live lookup failed"
         )
-        self.cloud_account_list_label = QLabel("YACSS Cloud Account IDs (check one or more):")
+        self.cloud_account_list_label = QLabel(
+            "YACSS Cloud Account IDs (check one or more):"
+        )
 
         # Diagram-only: a real Diagram (cloud_stack) build assigns cloud
         # accounts PER TIER, not one global list -- rr_yacss_factory's
@@ -754,7 +844,9 @@ class YAMLForm(QMainWindow):
         # result as plain comma-separated ids back into column 1, so column
         # 1 itself is untouched and still directly editable/typeable as a
         # fallback -- nothing downstream needs to change to consume it.
-        self.diagram_tier_accounts_table = _PercentColumnTableWidget(0, [0.15, 0.70, 0.15])
+        self.diagram_tier_accounts_table = _PercentColumnTableWidget(
+            0, [0.15, 0.70, 0.15]
+        )
         self.diagram_tier_accounts_table.setHorizontalHeaderLabels(
             ["Tier", "Cloud Account IDs (comma separated)", "Pick Accounts"]
         )
@@ -771,7 +863,9 @@ class YAMLForm(QMainWindow):
         self.faq_table.setHorizontalHeaderLabels(["Question", "Answer"])
         self.faq_table.setFont(QFont("Arial", self.font_size))
         self.faq_table.setFixedHeight(150)
-        self.faq_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.faq_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
         self.add_faq_row_button = QPushButton("Add FAQ Row")
         self.add_faq_row_button.clicked.connect(lambda: self._add_faq_row())
         ThemeManager.apply_button_style(self.add_faq_row_button, "success")
@@ -790,7 +884,9 @@ class YAMLForm(QMainWindow):
         # appended as new rows onto self.faq_table. Count is capped at
         # MAX_PAA_QUESTIONS per the feature request ("maximum per cycle of
         # 10") to keep one click's OpenAI cost bounded.
-        self.faq_paa_seed_label = QLabel("Seed keyword: (fill in YACSS Bucket Keyword first)")
+        self.faq_paa_seed_label = QLabel(
+            "Seed keyword: (fill in YACSS Bucket Keyword first)"
+        )
         self.faq_paa_seed_label.setFont(QFont("Arial", self.font_size))
         self.faq_paa_count_spinbox = QSpinBox()
         self.faq_paa_count_spinbox.setFont(QFont("Arial", self.font_size))
@@ -827,13 +923,17 @@ class YAMLForm(QMainWindow):
         # page_titles from real search-volume data instead of hand-
         # brainstorming -- see rr_yacss_factory's committed
         # script/_prototype-keyword-cluster.ts, which this module ports.
-        self.keyword_research_seed_label = QLabel("Seed keyword: (fill in YACSS Bucket Keyword first)")
+        self.keyword_research_seed_label = QLabel(
+            "Seed keyword: (fill in YACSS Bucket Keyword first)"
+        )
         self.keyword_research_seed_label.setFont(QFont("Arial", self.font_size))
         self.keyword_research_secondary_seed_input = QLineEdit()
-        self.keyword_research_secondary_seed_input.setFont(QFont("Arial", self.font_size))
+        self.keyword_research_secondary_seed_input.setFont(
+            QFont("Arial", self.font_size)
+        )
         self.keyword_research_secondary_seed_input.setPlaceholderText(
-            "Secondary/colloquial seed (optional) -- e.g. seed \"portable toilet "
-            "rental\" AND \"porta potty rental\" together if the industry has slang "
+            'Secondary/colloquial seed (optional) -- e.g. seed "portable toilet '
+            'rental" AND "porta potty rental" together if the industry has slang '
             "for the same service"
         )
         self.keyword_research_run_button = QPushButton("Run Research")
@@ -843,12 +943,22 @@ class YAMLForm(QMainWindow):
 
         self.keyword_research_results_table = QTableWidget(0, 5)
         self.keyword_research_results_table.setHorizontalHeaderLabels(
-            ["Use?", "Candidate Page Title", "Monthly Volume", "Flagged", "Sample Keywords"]
+            [
+                "Use?",
+                "Candidate Page Title",
+                "Monthly Volume",
+                "Flagged",
+                "Sample Keywords",
+            ]
         )
-        self.keyword_research_results_table.horizontalHeader().setStretchLastSection(True)
+        self.keyword_research_results_table.horizontalHeader().setStretchLastSection(
+            True
+        )
         self.keyword_research_results_table.setFont(QFont("Arial", self.font_size))
         self.keyword_research_results_table.setFixedHeight(300)
-        self.keyword_research_results_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.keyword_research_results_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers
+        )
         self.keyword_research_results_table.itemChanged.connect(
             self._update_keyword_research_selection_count
         )
@@ -857,11 +967,17 @@ class YAMLForm(QMainWindow):
         )
 
         self.keyword_research_selection_count_label = QLabel("0 / 0 selected")
-        self.keyword_research_selection_count_label.setFont(QFont("Arial", self.font_size))
+        self.keyword_research_selection_count_label.setFont(
+            QFont("Arial", self.font_size)
+        )
 
-        self.keyword_research_send_button = QPushButton("Send Selected to YACSS Build Tab")
+        self.keyword_research_send_button = QPushButton(
+            "Send Selected to YACSS Build Tab"
+        )
         self.keyword_research_send_button.setFont(QFont("Arial", self.font_size))
-        self.keyword_research_send_button.clicked.connect(self._send_selected_titles_to_build_tab)
+        self.keyword_research_send_button.clicked.connect(
+            self._send_selected_titles_to_build_tab
+        )
         ThemeManager.apply_button_style(self.keyword_research_send_button, "success")
 
         # Content Silo tab: generates real, landing-page-depth content for a
@@ -886,34 +1002,55 @@ class YAMLForm(QMainWindow):
         )
         self.silo_find_categories_button = QPushButton("Find Categories")
         self.silo_find_categories_button.setFont(QFont("Arial", self.font_size))
-        self.silo_find_categories_button.clicked.connect(self._run_silo_category_research)
+        self.silo_find_categories_button.clicked.connect(
+            self._run_silo_category_research
+        )
         ThemeManager.apply_button_style(self.silo_find_categories_button, "export")
 
         self.silo_categories_table = QTableWidget(0, 5)
         self.silo_categories_table.setHorizontalHeaderLabels(
-            ["Use?", "Candidate Category Title", "Monthly Volume", "Flagged", "Sample Keywords"]
+            [
+                "Use?",
+                "Candidate Category Title",
+                "Monthly Volume",
+                "Flagged",
+                "Sample Keywords",
+            ]
         )
         self.silo_categories_table.horizontalHeader().setStretchLastSection(True)
         self.silo_categories_table.setFont(QFont("Arial", self.font_size))
         self.silo_categories_table.setFixedHeight(220)
-        self.silo_categories_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.silo_categories_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers
+        )
         self.silo_categories_select_all_checkbox = self._make_select_all_checkbox(
             self.silo_categories_table
         )
 
-        self.silo_find_services_button = QPushButton("Find Services for Selected Categories")
+        self.silo_find_services_button = QPushButton(
+            "Find Services for Selected Categories"
+        )
         self.silo_find_services_button.setFont(QFont("Arial", self.font_size))
         self.silo_find_services_button.clicked.connect(self._run_silo_service_research)
         ThemeManager.apply_button_style(self.silo_find_services_button, "export")
 
         self.silo_services_table = QTableWidget(0, 6)
         self.silo_services_table.setHorizontalHeaderLabels(
-            ["Use?", "Category", "Candidate Service Title", "Monthly Volume", "Flagged", "Sample Keywords"]
+            [
+                "Use?",
+                "Category",
+                "Candidate Service Title",
+                "Monthly Volume",
+                "Flagged",
+                "Sample Keywords",
+            ]
         )
         self.silo_services_table.horizontalHeader().setStretchLastSection(True)
         self.silo_services_table.setFont(QFont("Arial", self.font_size))
         self.silo_services_table.setFixedHeight(220)
-        self.silo_services_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.silo_services_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers
+        )
         self.silo_services_select_all_checkbox = self._make_select_all_checkbox(
             self.silo_services_table
         )
@@ -963,7 +1100,9 @@ class YAMLForm(QMainWindow):
         # _sync_diagram_tier_table (above) already refreshes the counter
         # whenever Tiers changes; these two also affect the expected/actual
         # count directly and need their own wiring.
-        self.inputs["YACSS Tier0 Pages"].textChanged.connect(self._update_page_titles_count_label)
+        self.inputs["YACSS Tier0 Pages"].textChanged.connect(
+            self._update_page_titles_count_label
+        )
         self.inputs["YACSS Diagram Page Titles (one per line)"].textChanged.connect(
             self._update_page_titles_count_label
         )
@@ -1221,7 +1360,11 @@ class YAMLForm(QMainWindow):
         _populate_template_combo use."""
         combo = self.inputs["YACSS AI Model"]
         current = combo.currentText()
-        platform = (platform if platform is not None else self.inputs["YACSS AI Platform"].currentText()).strip()
+        platform = (
+            platform
+            if platform is not None
+            else self.inputs["YACSS AI Platform"].currentText()
+        ).strip()
         combo.clear()
         combo.addItem("")
         for model in self._ai_models:
@@ -1243,7 +1386,11 @@ class YAMLForm(QMainWindow):
     def _populate_cloud_account_list(self, accounts: list):
         self.cloud_account_list.clear()
         for account in accounts:
-            label_parts = [account["id"], account.get("provider", ""), account.get("name", "")]
+            label_parts = [
+                account["id"],
+                account.get("provider", ""),
+                account.get("name", ""),
+            ]
             if account.get("client"):
                 label_parts.append(f"(client: {account['client']})")
             item = QListWidgetItem(" -- ".join(part for part in label_parts if part))
@@ -1426,7 +1573,11 @@ class YAMLForm(QMainWindow):
         comma-separated ids on OK. A Cancel (or closing the dialog) leaves
         the row untouched."""
         ids_item = self.diagram_tier_accounts_table.item(row, 1)
-        current_ids = [v.strip() for v in (ids_item.text() if ids_item else "").split(",") if v.strip()]
+        current_ids = [
+            v.strip()
+            for v in (ids_item.text() if ids_item else "").split(",")
+            if v.strip()
+        ]
         dialog = _CloudAccountPickerDialog(self._cloud_accounts, current_ids, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.diagram_tier_accounts_table.setItem(
@@ -1517,7 +1668,7 @@ class YAMLForm(QMainWindow):
         if not match:
             return (
                 "",
-                'Google Maps Embed Code doesn\'t look like a pasted <iframe> tag (no '
+                "Google Maps Embed Code doesn't look like a pasted <iframe> tag (no "
                 'src="..." found) -- use Google Maps\' Share -> Embed a map -> Copy '
                 "HTML, and paste the full HTML, not just a link",
             )
@@ -1556,7 +1707,9 @@ class YAMLForm(QMainWindow):
         pages = []
         for row in range(self.diagram_tier_accounts_table.rowCount()):
             tier_item = self.diagram_tier_accounts_table.item(row, 0)
-            match = re.search(r"\((\d+) pages\)", tier_item.text()) if tier_item else None
+            match = (
+                re.search(r"\((\d+) pages\)", tier_item.text()) if tier_item else None
+            )
             pages.append(int(match.group(1)) if match else 0)
         return pages
 
@@ -1592,7 +1745,9 @@ class YAMLForm(QMainWindow):
             ]
         )
         if current == expected:
-            label.setText(f"YACSS Diagram Page Titles (one per line) -- {current}/{expected} OK")
+            label.setText(
+                f"YACSS Diagram Page Titles (one per line) -- {current}/{expected} OK"
+            )
             label.setStyleSheet("color: green;")
         else:
             label.setText(
@@ -1610,12 +1765,16 @@ class YAMLForm(QMainWindow):
             "target_keyword": self.inputs["YACSS Bucket Keyword"].text().strip(),
             "target_cities": [
                 line
-                for line in self.inputs["* Target Cities (one per line)"].toPlainText().splitlines()
+                for line in self.inputs["* Target Cities (one per line)"]
+                .toPlainText()
+                .splitlines()
                 if line.strip()
             ],
             "services": [
                 line
-                for line in self.inputs["* Services (one per line)"].toPlainText().splitlines()
+                for line in self.inputs["* Services (one per line)"]
+                .toPlainText()
+                .splitlines()
                 if line.strip()
             ],
         }
@@ -1629,7 +1788,9 @@ class YAMLForm(QMainWindow):
             tier0_pages = int(self.inputs["YACSS Tier0 Pages"].text().strip() or "0")
         except ValueError:
             tier0_pages = 0
-        return self._compute_cloud_stack_total_pages(tier0_pages, self._tier_pages_from_table())
+        return self._compute_cloud_stack_total_pages(
+            tier0_pages, self._tier_pages_from_table()
+        )
 
     def _current_seed_keyword(self) -> str:
         """The keyword field this tab treats as the real research seed:
@@ -1666,13 +1827,15 @@ class YAMLForm(QMainWindow):
             self.faq_paa_seed_label.setText(text)
             return
         build_type = self.inputs["YACSS Build Type"].currentText()
-        source_field = "YACSS Bucket Keyword" if build_type == "Diagram" else "YACSS Topic Keyword"
+        source_field = (
+            "YACSS Bucket Keyword" if build_type == "Diagram" else "YACSS Topic Keyword"
+        )
         text = f"Seed keyword: (fill in {source_field} on the YACSS Build tab first)"
         self.keyword_research_seed_label.setText(text)
         self.faq_paa_seed_label.setText(text)
 
     def _run_keyword_research(self):
-        """"Run Research" button handler: calls DataForSEO Labs (via
+        """ "Run Research" button handler: calls DataForSEO Labs (via
         keyword_research_api.fetch_clusters) for the current seed(s) and
         populates the results table. Synchronous/blocking with a busy
         cursor, same pattern as _run_ai_generation and
@@ -1700,7 +1863,9 @@ class YAMLForm(QMainWindow):
         # trusted as if they were locally relevant.
         target_cities = [
             line
-            for line in self.inputs["* Target Cities (one per line)"].toPlainText().splitlines()
+            for line in self.inputs["* Target Cities (one per line)"]
+            .toPlainText()
+            .splitlines()
             if line.strip()
         ]
         local_tokens = local_location_tokens(self.inputs["State"].text(), target_cities)
@@ -1730,7 +1895,7 @@ class YAMLForm(QMainWindow):
                 "No results",
                 f'DataForSEO found no related keywords for "{seed}"'
                 + (f' or "{secondary}"' if secondary else "")
-                + ". Try a more common phrasing (e.g. \"garage door repair\" "
+                + '. Try a more common phrasing (e.g. "garage door repair" '
                 "instead of an internal/industry term), check spelling, or "
                 "try a broader seed.",
             )
@@ -1745,7 +1910,9 @@ class YAMLForm(QMainWindow):
         the feature request actually asked for."""
         checkbox = QCheckBox("Select All / Deselect All")
         checkbox.setFont(QFont("Arial", self.font_size))
-        checkbox.toggled.connect(lambda checked: self._set_table_checkboxes(table, checked))
+        checkbox.toggled.connect(
+            lambda checked: self._set_table_checkboxes(table, checked)
+        )
         return checkbox
 
     def _set_table_checkboxes(self, table: QTableWidget, checked: bool):
@@ -1777,29 +1944,39 @@ class YAMLForm(QMainWindow):
         table.setRowCount(len(clusters))
         for row, cluster in enumerate(clusters):
             checkbox_item = QTableWidgetItem()
-            checkbox_item.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+            checkbox_item.setFlags(
+                Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled
+            )
             checkbox_item.setCheckState(Qt.CheckState.Unchecked)
             table.setItem(row, 0, checkbox_item)
 
             title_item = QTableWidgetItem(cluster["candidate_page_title"])
-            title_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            title_item.setFlags(
+                Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+            )
             table.setItem(row, 1, title_item)
 
             volume_item = QTableWidgetItem(f"{cluster['total_search_volume']:,}")
-            volume_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            volume_item.setFlags(
+                Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+            )
             table.setItem(row, 2, volume_item)
 
             flagged = cluster["candidate_page_title_flagged"]
             flag_reason = cluster.get("candidate_page_title_flag_reason") or ""
             flagged_item = QTableWidgetItem(flag_reason.upper() if flagged else "")
-            flagged_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            flagged_item.setFlags(
+                Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+            )
             if flagged:
                 flagged_item.setForeground(Qt.GlobalColor.red)
             table.setItem(row, 3, flagged_item)
 
             sample_keywords = ", ".join(kw["keyword"] for kw in cluster["keywords"][:5])
             sample_item = QTableWidgetItem(sample_keywords)
-            sample_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            sample_item.setFlags(
+                Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+            )
             table.setItem(row, 4, sample_item)
         table.blockSignals(False)
         self._update_keyword_research_selection_count()
@@ -1809,13 +1986,16 @@ class YAMLForm(QMainWindow):
         selected = sum(
             1
             for row in range(table.rowCount())
-            if table.item(row, 0) and table.item(row, 0).checkState() == Qt.CheckState.Checked
+            if table.item(row, 0)
+            and table.item(row, 0).checkState() == Qt.CheckState.Checked
         )
         needed = self._expected_page_title_count()
-        self.keyword_research_selection_count_label.setText(f"{selected} / {needed} selected")
+        self.keyword_research_selection_count_label.setText(
+            f"{selected} / {needed} selected"
+        )
 
     def _send_selected_titles_to_build_tab(self):
-        """"Send Selected to YACSS Build Tab" button handler: writes the
+        """ "Send Selected to YACSS Build Tab" button handler: writes the
         checked rows' candidate titles (table order, already volume-sorted
         by fetch_clusters) into YACSS Diagram Page Titles, confirming
         first if that field already has content -- mirrors
@@ -1824,10 +2004,13 @@ class YAMLForm(QMainWindow):
         titles = [
             table.item(row, 1).text()
             for row in range(table.rowCount())
-            if table.item(row, 0) and table.item(row, 0).checkState() == Qt.CheckState.Checked
+            if table.item(row, 0)
+            and table.item(row, 0).checkState() == Qt.CheckState.Checked
         ]
         if not titles:
-            QMessageBox.warning(self, "Nothing selected", "Check at least one row to send.")
+            QMessageBox.warning(
+                self, "Nothing selected", "Check at least one row to send."
+            )
             return
 
         page_titles_field = self.inputs["YACSS Diagram Page Titles (one per line)"]
@@ -1850,12 +2033,16 @@ class YAMLForm(QMainWindow):
         uses for its own off-target-location flag."""
         target_cities = [
             line
-            for line in self.inputs["* Target Cities (one per line)"].toPlainText().splitlines()
+            for line in self.inputs["* Target Cities (one per line)"]
+            .toPlainText()
+            .splitlines()
             if line.strip()
         ]
         return local_location_tokens(self.inputs["State"].text(), target_cities)
 
-    def _populate_silo_cluster_row(self, table, row: int, cluster: dict, extra_columns: list):
+    def _populate_silo_cluster_row(
+        self, table, row: int, cluster: dict, extra_columns: list
+    ):
         """Fills one row of either silo table with the columns common to
         both (a checkable Use? box, then whatever extra_columns come before
         it -- just Candidate Title for categories, Category + Candidate
@@ -1863,7 +2050,9 @@ class YAMLForm(QMainWindow):
         _populate_keyword_research_table's own per-row shape so all three
         cluster-results tables in this app read consistently."""
         checkbox_item = QTableWidgetItem()
-        checkbox_item.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+        checkbox_item.setFlags(
+            Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled
+        )
         checkbox_item.setCheckState(Qt.CheckState.Unchecked)
         table.setItem(row, 0, checkbox_item)
 
@@ -1894,7 +2083,7 @@ class YAMLForm(QMainWindow):
         table.setItem(row, col, sample_item)
 
     def _run_silo_category_research(self):
-        """"Find Categories" button handler: seeds keyword_research_api.
+        """ "Find Categories" button handler: seeds keyword_research_api.
         fetch_clusters with the silo's own overall topic (Silo Seed
         Keyword) to discover the top level of the Category -> Service
         silo structure. Replaces any prior categories-table results rather
@@ -1924,10 +2113,12 @@ class YAMLForm(QMainWindow):
         self.silo_categories_select_all_checkbox.setChecked(False)
         table.setRowCount(len(clusters))
         for row, cluster in enumerate(clusters):
-            self._populate_silo_cluster_row(table, row, cluster, [cluster["candidate_page_title"]])
+            self._populate_silo_cluster_row(
+                table, row, cluster, [cluster["candidate_page_title"]]
+            )
 
     def _run_silo_service_research(self):
-        """"Find Services for Selected Categories" button handler: for each
+        """ "Find Services for Selected Categories" button handler: for each
         CHECKED category row, re-seeds fetch_clusters with that category's
         own candidate title to discover the services within it -- the
         second pass of the two-level silo discovery. Clears the WHOLE
@@ -1939,7 +2130,8 @@ class YAMLForm(QMainWindow):
             self.silo_categories_table.item(row, 1).text()
             for row in range(self.silo_categories_table.rowCount())
             if self.silo_categories_table.item(row, 0)
-            and self.silo_categories_table.item(row, 0).checkState() == Qt.CheckState.Checked
+            and self.silo_categories_table.item(row, 0).checkState()
+            == Qt.CheckState.Checked
         ]
         if not checked_categories:
             QMessageBox.warning(
@@ -1971,7 +2163,7 @@ class YAMLForm(QMainWindow):
             self.setEnabled(True)
 
     def _generate_silo_content(self):
-        """"Generate Content" button handler: calls
+        """ "Generate Content" button handler: calls
         silo_content_generator.generate_service_page_content once per
         CHECKED row across both tables (a checked category becomes its own
         silo-landing page; a checked service becomes its own leaf page),
@@ -1995,7 +2187,8 @@ class YAMLForm(QMainWindow):
             self.silo_categories_table.item(row, 1).text()
             for row in range(self.silo_categories_table.rowCount())
             if self.silo_categories_table.item(row, 0)
-            and self.silo_categories_table.item(row, 0).checkState() == Qt.CheckState.Checked
+            and self.silo_categories_table.item(row, 0).checkState()
+            == Qt.CheckState.Checked
         ]
         checked_services = [
             (
@@ -2004,7 +2197,8 @@ class YAMLForm(QMainWindow):
             )
             for row in range(self.silo_services_table.rowCount())
             if self.silo_services_table.item(row, 0)
-            and self.silo_services_table.item(row, 0).checkState() == Qt.CheckState.Checked
+            and self.silo_services_table.item(row, 0).checkState()
+            == Qt.CheckState.Checked
         ]
         if not checked_categories and not checked_services:
             QMessageBox.warning(
@@ -2029,7 +2223,9 @@ class YAMLForm(QMainWindow):
         business_category = self.inputs["* Business Category"].text().strip()
         target_cities = [
             line
-            for line in self.inputs["* Target Cities (one per line)"].toPlainText().splitlines()
+            for line in self.inputs["* Target Cities (one per line)"]
+            .toPlainText()
+            .splitlines()
             if line.strip()
         ]
         silo_topic = self.silo_seed_input.text().strip()
@@ -2096,7 +2292,8 @@ class YAMLForm(QMainWindow):
                 self,
                 "Some pages failed",
                 "The following page(s) failed to generate (see each page's "
-                "own error when exporting):\n\n" + "\n".join(f"- {f}" for f in failures),
+                "own error when exporting):\n\n"
+                + "\n".join(f"- {f}" for f in failures),
             )
 
     @staticmethod
@@ -2123,7 +2320,7 @@ class YAMLForm(QMainWindow):
         return "\n".join(parts).rstrip() + "\n"
 
     def _export_silo(self):
-        """"Export Silo" button handler: writes one Markdown file per
+        """ "Export Silo" button handler: writes one Markdown file per
         successfully-generated page (self.silo_pages entries with
         content is not None -- a failed page is skipped, not exported with
         blank content) plus one top-level _silo_structure.md index.
@@ -2168,9 +2365,16 @@ class YAMLForm(QMainWindow):
             relative = file_path.relative_to(folder_path).as_posix()
             index_lines.append(f"- [{page['title']}]({relative})")
             for service_page, service_file_path in written:
-                if service_page["kind"] == "service" and service_page["category"] == page["title"]:
-                    service_relative = service_file_path.relative_to(folder_path).as_posix()
-                    index_lines.append(f"  - [{service_page['title']}]({service_relative})")
+                if (
+                    service_page["kind"] == "service"
+                    and service_page["category"] == page["title"]
+                ):
+                    service_relative = service_file_path.relative_to(
+                        folder_path
+                    ).as_posix()
+                    index_lines.append(
+                        f"  - [{service_page['title']}]({service_relative})"
+                    )
         # Any service page whose own category was never itself exported
         # (checked as a service without also checking its category) still
         # belongs in the index -- listed flat rather than silently omitted.
@@ -2390,7 +2594,9 @@ class YAMLForm(QMainWindow):
         try:
             tier0_pages = int(tier0_pages_raw.strip() or "0")
         except ValueError:
-            warnings.append(f"YACSS Tier0 Pages {tier0_pages_raw!r} is not a whole number -- treated as 0")
+            warnings.append(
+                f"YACSS Tier0 Pages {tier0_pages_raw!r} is not a whole number -- treated as 0"
+            )
             tier0_pages = 0
 
         tier_pages = self._tier_pages_from_table()
@@ -2404,12 +2610,18 @@ class YAMLForm(QMainWindow):
             if not account_ids:
                 warnings.append(f"Tier {tier_num} has no Cloud Account IDs assigned")
             tiers.append(
-                {"tier": tier_num, "pages": tier_pages[row], "cloud_account_ids": account_ids}
+                {
+                    "tier": tier_num,
+                    "pages": tier_pages[row],
+                    "cloud_account_ids": account_ids,
+                }
             )
 
         page_titles = [
             line.strip()
-            for line in self.inputs["YACSS Diagram Page Titles (one per line)"].toPlainText().splitlines()
+            for line in self.inputs["YACSS Diagram Page Titles (one per line)"]
+            .toPlainText()
+            .splitlines()
             if line.strip()
         ]
         expected_total = self._compute_cloud_stack_total_pages(
@@ -2432,13 +2644,16 @@ class YAMLForm(QMainWindow):
             "state": self.inputs["State"].text(),
             "zip": self.inputs["ZIP"].text(),
             "phone": self.inputs["* Phone"].text(),
-            "email": self.inputs["Email"].text() or self.inputs["Contact Email Address"].text(),
+            "email": self.inputs["Email"].text()
+            or self.inputs["Contact Email Address"].text(),
         }
         for field_name in ("address", "city", "state", "zip", "phone", "email"):
             require(company[field_name], f"Company {field_name}")
 
         job = {
-            "job_id": self._resolve_job_id(self._slugify(client_name) or "cloud-stack-job"),
+            "job_id": self._resolve_job_id(
+                self._slugify(client_name) or "cloud-stack-job"
+            ),
             "type": "cloud_stack",
             "keyword": keyword,
             "name": client_name,
@@ -2469,7 +2684,9 @@ class YAMLForm(QMainWindow):
             job["content_image_url"] = content_image_url
         content_image_urls = [
             line.strip()
-            for line in self.inputs["Content Image URLs (one per line)"].toPlainText().splitlines()
+            for line in self.inputs["Content Image URLs (one per line)"]
+            .toPlainText()
+            .splitlines()
             if line.strip()
         ]
         if content_image_urls:
@@ -2491,7 +2708,11 @@ class YAMLForm(QMainWindow):
         # deliberately switched. See rr_yacss_factory's
         # CloudStackJob.content_mode (src/jobs/types.ts v1.15) for what
         # "ai_per_page" actually does server-side.
-        if self.inputs["YACSS Content Generation Mode"].currentText().startswith("AI-written"):
+        if (
+            self.inputs["YACSS Content Generation Mode"]
+            .currentText()
+            .startswith("AI-written")
+        ):
             job["content_mode"] = "ai_per_page"
             ai_platform = self.inputs["YACSS AI Platform"].currentText().strip()
             ai_model = self.inputs["YACSS AI Model"].currentText().strip()
@@ -2536,7 +2757,9 @@ class YAMLForm(QMainWindow):
                 warnings.append(f"{label} is blank")
 
         client_name = self.inputs["* Client Name"].text()
-        display_title = self.inputs["YACSS Listicle Display Title"].text().strip() or client_name
+        display_title = (
+            self.inputs["YACSS Listicle Display Title"].text().strip() or client_name
+        )
         topic_keyword = self.inputs["YACSS Topic Keyword"].text()
         lsi_keyword = self.inputs["YACSS Bucket Keyword"].text()
         template = self.inputs["YACSS Template"].currentText()
@@ -2565,7 +2788,9 @@ class YAMLForm(QMainWindow):
         if items_per_listicle <= 0:
             warnings.append("YACSS Items Per Listicle must be a positive whole number")
 
-        cloud_account_ids = [v for v in self._serialize_cloud_account_ids().split(",") if v]
+        cloud_account_ids = [
+            v for v in self._serialize_cloud_account_ids().split(",") if v
+        ]
         if not cloud_account_ids:
             warnings.append("No YACSS Cloud Account IDs selected")
 
@@ -2581,7 +2806,9 @@ class YAMLForm(QMainWindow):
             # "YACSS Job ID (override)", when filled in, wins outright over
             # this auto-derived suffix -- see _resolve_job_id.
             "job_id": self._resolve_job_id(
-                f"{self._slugify(client_name)}-listicle" if client_name.strip() else "listicle-job"
+                f"{self._slugify(client_name)}-listicle"
+                if client_name.strip()
+                else "listicle-job"
             ),
             "type": "listicle",
             "keyword": topic_keyword,
@@ -2601,9 +2828,13 @@ class YAMLForm(QMainWindow):
         brand_position_raw = self.inputs["YACSS Brand Position"].text().strip()
         if brand_name or brand_url:
             if not brand_name:
-                warnings.append("YACSS Brand URL is set but YACSS Brand Name is blank -- brand omitted")
+                warnings.append(
+                    "YACSS Brand URL is set but YACSS Brand Name is blank -- brand omitted"
+                )
             elif not brand_url:
-                warnings.append("YACSS Brand Name is set but YACSS Brand URL is blank -- brand omitted")
+                warnings.append(
+                    "YACSS Brand Name is set but YACSS Brand URL is blank -- brand omitted"
+                )
             else:
                 brand = {"name": brand_name, "url": brand_url}
                 if brand_position_raw:
@@ -2621,7 +2852,9 @@ class YAMLForm(QMainWindow):
 
         competitor_urls = [
             line.strip()
-            for line in self.inputs["YACSS Competitor URLs (one per line)"].toPlainText().splitlines()
+            for line in self.inputs["YACSS Competitor URLs (one per line)"]
+            .toPlainText()
+            .splitlines()
             if line.strip()
         ]
         if competitor_urls:
@@ -2629,7 +2862,9 @@ class YAMLForm(QMainWindow):
 
         target_urls = [
             line.strip()
-            for line in self.inputs["YACSS Target URLs (one per line)"].toPlainText().splitlines()
+            for line in self.inputs["YACSS Target URLs (one per line)"]
+            .toPlainText()
+            .splitlines()
             if line.strip()
         ]
         if target_urls:
@@ -2680,7 +2915,9 @@ class YAMLForm(QMainWindow):
         if not content:
             warnings.append("YACSS Diagram Content is blank")
 
-        cloud_account_ids = [v for v in self._serialize_cloud_account_ids().split(",") if v]
+        cloud_account_ids = [
+            v for v in self._serialize_cloud_account_ids().split(",") if v
+        ]
         if not cloud_account_ids:
             warnings.append("No YACSS Cloud Account IDs selected")
 
@@ -2691,7 +2928,9 @@ class YAMLForm(QMainWindow):
             # over this auto-derived suffix when filled in -- see
             # _resolve_job_id.
             "job_id": self._resolve_job_id(
-                f"{self._slugify(client_name)}-masspage" if client_name.strip() else "masspage-job"
+                f"{self._slugify(client_name)}-masspage"
+                if client_name.strip()
+                else "masspage-job"
             ),
             "type": "masspage",
             "keyword": topic_keyword,
@@ -2789,7 +3028,9 @@ class YAMLForm(QMainWindow):
         try:
             with open(file_name, "w", encoding="utf-8") as f:
                 json.dump([job], f, indent=2, ensure_ascii=False)
-            QMessageBox.information(self, "Exported", f"Job JSON written to:\n{file_name}")
+            QMessageBox.information(
+                self, "Exported", f"Job JSON written to:\n{file_name}"
+            )
         except OSError as e:
             QMessageBox.critical(self, "Error", f"Failed to write job JSON:\n{e}")
 
@@ -2858,7 +3099,9 @@ class YAMLForm(QMainWindow):
                 rows = []
         for row in rows:
             if isinstance(row, dict):
-                self._add_faq_row(str(row.get("question", "")), str(row.get("answer", "")))
+                self._add_faq_row(
+                    str(row.get("question", "")), str(row.get("answer", ""))
+                )
             else:
                 self._add_faq_row(str(row), "")
 
@@ -2889,7 +3132,7 @@ class YAMLForm(QMainWindow):
         QMessageBox.information(self, "Imported", f"Imported {len(faqs)} FAQ(s).")
 
     def _generate_faq_from_paa(self):
-        """"Generate FAQs from People Also Ask" button handler: fetches up
+        """ "Generate FAQs from People Also Ask" button handler: fetches up
         to self.faq_paa_count_spinbox.value() real Google PAA questions
         for the current seed keyword (keyword_research_api.
         fetch_people_also_ask), writes a real answer for each via
@@ -2924,12 +3167,16 @@ class YAMLForm(QMainWindow):
         business_category = self.inputs["* Business Category"].text().strip()
         target_cities = [
             line
-            for line in self.inputs["* Target Cities (one per line)"].toPlainText().splitlines()
+            for line in self.inputs["* Target Cities (one per line)"]
+            .toPlainText()
+            .splitlines()
             if line.strip()
         ]
         services = [
             line
-            for line in self.inputs["* Services (one per line)"].toPlainText().splitlines()
+            for line in self.inputs["* Services (one per line)"]
+            .toPlainText()
+            .splitlines()
             if line.strip()
         ]
 
@@ -2969,7 +3216,9 @@ class YAMLForm(QMainWindow):
         for question, answer in zip(questions, answers):
             self._add_faq_row(question, answer)
         QMessageBox.information(
-            self, "FAQs Generated", f"Added {len(questions)} FAQ(s) from People Also Ask."
+            self,
+            "FAQs Generated",
+            f"Added {len(questions)} FAQ(s) from People Also Ask.",
         )
 
     def open_city_dialog(self):
@@ -2977,7 +3226,7 @@ class YAMLForm(QMainWindow):
         if dialog.exec():
             city_data = dialog.get_data()
             key = f"{city_data['city']}, {city_data['state']}"
-            self.city_data[key] = {"embed_code": city_data['embed_code']}
+            self.city_data[key] = {"embed_code": city_data["embed_code"]}
             self.refresh_city_list()
 
     def refresh_city_list(self):
@@ -2996,7 +3245,9 @@ class YAMLForm(QMainWindow):
         HelpDialog(self).exec()
 
     def load_yaml(self):
-        file_name, _ = QFileDialog.getOpenFileName(self, "Open YAML File", "", "YAML Files (*.yaml *.yml)")
+        file_name, _ = QFileDialog.getOpenFileName(
+            self, "Open YAML File", "", "YAML Files (*.yaml *.yml)"
+        )
         if not file_name:
             return
         try:
@@ -3038,14 +3289,18 @@ class YAMLForm(QMainWindow):
                     if "Phone" in key and value:
                         value = re.sub(r"\D", "", str(value))
                     widget.setText(str(value))
-            self._load_cloud_account_ids(data.get("YACSS Cloud Account IDs (comma separated)", ""))
+            self._load_cloud_account_ids(
+                data.get("YACSS Cloud Account IDs (comma separated)", "")
+            )
             self._load_faq_rows(data)
             # Must run after the generic loop above (which just populated
             # "YACSS Tiers") -- _load_diagram_tier_accounts rebuilds the
             # per-tier table from that text before filling in saved values.
             self._load_diagram_tier_accounts(
                 data.get("YACSS Diagram Tier Cloud Account IDs"),
-                legacy_flat_ids=str(data.get("YACSS Cloud Account IDs (comma separated)", "")),
+                legacy_flat_ids=str(
+                    data.get("YACSS Cloud Account IDs (comma separated)", "")
+                ),
             )
             self._update_build_type_ui(self.inputs["YACSS Build Type"].currentText())
             if "city_embeds" in data and isinstance(data["city_embeds"], dict):
@@ -3058,9 +3313,12 @@ class YAMLForm(QMainWindow):
     def save_yaml(self):
         missing = [c for c, d in self.city_data.items() if not d.get("embed_code")]
         if missing:
-            reply = QMessageBox.question(self, "Missing Embeds",
-                                         f"{len(missing)} cities are missing embeds. Add them now?",
-                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            reply = QMessageBox.question(
+                self,
+                "Missing Embeds",
+                f"{len(missing)} cities are missing embeds. Add them now?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
             if reply == QMessageBox.StandardButton.Yes:
                 return
         data = {}
@@ -3083,7 +3341,9 @@ class YAMLForm(QMainWindow):
         data["YACSS Cloud Account IDs (comma separated)"] = (
             "" if is_diagram else self._serialize_cloud_account_ids()
         )
-        tier_account_rows = self._serialize_diagram_tier_accounts() if is_diagram else []
+        tier_account_rows = (
+            self._serialize_diagram_tier_accounts() if is_diagram else []
+        )
         data["YACSS Diagram Tier Cloud Account IDs"] = tier_account_rows
         if is_diagram:
             # Real bug found live (Salvo Metal Works chimney_shrouds.yaml,
@@ -3101,7 +3361,7 @@ class YAMLForm(QMainWindow):
                 QMessageBox.warning(
                     self,
                     "Duplicate Tier Numbers",
-                    "The \"YACSS Tiers (tier:pages, one per line)\" field has more "
+                    'The "YACSS Tiers (tier:pages, one per line)" field has more '
                     "than one row using tier number(s) "
                     + ", ".join(str(d) for d in duplicates)
                     + ". Each line must use a distinct, increasing tier number "
@@ -3112,7 +3372,9 @@ class YAMLForm(QMainWindow):
                 return
         data["FAQ Questions & Answers"] = self._serialize_faq_rows()
         data["city_embeds"] = self.city_data
-        file_name, _ = QFileDialog.getSaveFileName(self, "Save YAML File", "", "YAML Files (*.yaml *.yml)")
+        file_name, _ = QFileDialog.getSaveFileName(
+            self, "Save YAML File", "", "YAML Files (*.yaml *.yml)"
+        )
         if file_name:
             try:
                 # Explicit encoding is required here -- without it, open()

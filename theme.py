@@ -90,19 +90,29 @@ class ButtonStyles:
     for which skippy buttons use which."""
 
     SUCCESS = _button_style(
-        ColorPalette.SUCCESS_GREEN, ColorPalette.SUCCESS_GREEN_HOVER, ColorPalette.SUCCESS_GREEN_PRESSED
+        ColorPalette.SUCCESS_GREEN,
+        ColorPalette.SUCCESS_GREEN_HOVER,
+        ColorPalette.SUCCESS_GREEN_PRESSED,
     )
     EXPORT = _button_style(
-        ColorPalette.EXPORT_BLUE, ColorPalette.EXPORT_BLUE_HOVER, ColorPalette.EXPORT_BLUE_PRESSED
+        ColorPalette.EXPORT_BLUE,
+        ColorPalette.EXPORT_BLUE_HOVER,
+        ColorPalette.EXPORT_BLUE_PRESSED,
     )
     IMPORT = _button_style(
-        ColorPalette.IMPORT_GREEN, ColorPalette.IMPORT_GREEN_HOVER, ColorPalette.IMPORT_GREEN_PRESSED
+        ColorPalette.IMPORT_GREEN,
+        ColorPalette.IMPORT_GREEN_HOVER,
+        ColorPalette.IMPORT_GREEN_PRESSED,
     )
     DANGER = _button_style(
-        ColorPalette.DANGER_RED, ColorPalette.DANGER_RED_HOVER, ColorPalette.DANGER_RED_PRESSED
+        ColorPalette.DANGER_RED,
+        ColorPalette.DANGER_RED_HOVER,
+        ColorPalette.DANGER_RED_PRESSED,
     )
     SECONDARY = _button_style(
-        ColorPalette.SECONDARY_GRAY, ColorPalette.SECONDARY_GRAY_HOVER, ColorPalette.SECONDARY_GRAY_PRESSED
+        ColorPalette.SECONDARY_GRAY,
+        ColorPalette.SECONDARY_GRAY_HOVER,
+        ColorPalette.SECONDARY_GRAY_PRESSED,
     )
 
 

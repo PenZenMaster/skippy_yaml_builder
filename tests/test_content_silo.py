@@ -59,7 +59,10 @@ def test_find_categories_requires_a_seed(qapp):
 def test_find_categories_populates_the_categories_table(qapp):
     form = YAMLForm()
     form.silo_seed_input.setText("garage door services")
-    clusters = [_cluster("Garage Door Repair", volume=500), _cluster("Garage Door Installation", volume=300)]
+    clusters = [
+        _cluster("Garage Door Repair", volume=500),
+        _cluster("Garage Door Installation", volume=300),
+    ]
 
     with patch("main.fetch_clusters", return_value=clusters) as mock_fetch:
         form._run_silo_category_research()
@@ -76,7 +79,10 @@ def test_find_categories_replaces_prior_results_rather_than_appending(qapp):
     form.silo_seed_input.setText("garage door services")
     with patch("main.fetch_clusters", return_value=[_cluster("First Run")]):
         form._run_silo_category_research()
-    with patch("main.fetch_clusters", return_value=[_cluster("Second Run A"), _cluster("Second Run B")]):
+    with patch(
+        "main.fetch_clusters",
+        return_value=[_cluster("Second Run A"), _cluster("Second Run B")],
+    ):
         form._run_silo_category_research()
 
     assert form.silo_categories_table.rowCount() == 2
@@ -104,7 +110,8 @@ def test_find_services_populates_services_table_with_category_column(qapp):
     _check_row(form.silo_categories_table, 0)
 
     with patch(
-        "main.fetch_clusters", return_value=[_cluster("Spring Replacement"), _cluster("Opener Repair")]
+        "main.fetch_clusters",
+        return_value=[_cluster("Spring Replacement"), _cluster("Opener Repair")],
     ) as mock_fetch:
         form._run_silo_service_research()
 
@@ -117,7 +124,10 @@ def test_find_services_populates_services_table_with_category_column(qapp):
 def test_find_services_clears_the_whole_table_each_run(qapp):
     form = YAMLForm()
     form.silo_seed_input.setText("garage door services")
-    with patch("main.fetch_clusters", return_value=[_cluster("Category A"), _cluster("Category B")]):
+    with patch(
+        "main.fetch_clusters",
+        return_value=[_cluster("Category A"), _cluster("Category B")],
+    ):
         form._run_silo_category_research()
     _check_row(form.silo_categories_table, 0)
     _check_row(form.silo_categories_table, 1)
@@ -137,9 +147,10 @@ def test_find_services_clears_the_whole_table_each_run(qapp):
 
 def test_generate_content_requires_ai_availability(qapp):
     form = YAMLForm()
-    with patch("main.silo_content_is_available", return_value=False), patch.object(
-        QMessageBox, "warning"
-    ) as mock_warning:
+    with (
+        patch("main.silo_content_is_available", return_value=False),
+        patch.object(QMessageBox, "warning") as mock_warning,
+    ):
         form._generate_silo_content()
     mock_warning.assert_called_once()
     assert form.silo_pages == []
@@ -147,9 +158,10 @@ def test_generate_content_requires_ai_availability(qapp):
 
 def test_generate_content_requires_at_least_one_checked_row(qapp):
     form = YAMLForm()
-    with patch("main.silo_content_is_available", return_value=True), patch.object(
-        QMessageBox, "warning"
-    ) as mock_warning:
+    with (
+        patch("main.silo_content_is_available", return_value=True),
+        patch.object(QMessageBox, "warning") as mock_warning,
+    ):
         form._generate_silo_content()
     mock_warning.assert_called_once()
 
@@ -177,9 +189,13 @@ def test_generate_content_builds_pages_for_checked_categories_and_services(qapp)
         form._run_silo_service_research()
     _check_row(form.silo_services_table, 0)
 
-    with patch("main.silo_content_is_available", return_value=True), patch(
-        "main.generate_service_page_content", side_effect=lambda **kwargs: _fake_content(kwargs["page_topic"])
-    ) as mock_generate:
+    with (
+        patch("main.silo_content_is_available", return_value=True),
+        patch(
+            "main.generate_service_page_content",
+            side_effect=lambda **kwargs: _fake_content(kwargs["page_topic"]),
+        ) as mock_generate,
+    ):
         form._generate_silo_content()
 
     assert len(form.silo_pages) == 2
@@ -198,7 +214,10 @@ def test_generate_content_continues_after_one_page_fails(qapp):
     form = YAMLForm()
     form.inputs["* Client Name"].setText("Acme Plumbing")
     form.silo_seed_input.setText("garage door services")
-    with patch("main.fetch_clusters", return_value=[_cluster("Category A"), _cluster("Category B")]):
+    with patch(
+        "main.fetch_clusters",
+        return_value=[_cluster("Category A"), _cluster("Category B")],
+    ):
         form._run_silo_category_research()
     _check_row(form.silo_categories_table, 0)
     _check_row(form.silo_categories_table, 1)
@@ -208,9 +227,11 @@ def test_generate_content_continues_after_one_page_fails(qapp):
             raise SiloContentError("boom")
         return _fake_content(kwargs["page_topic"])
 
-    with patch("main.silo_content_is_available", return_value=True), patch(
-        "main.generate_service_page_content", side_effect=fake_generate
-    ), patch.object(QMessageBox, "warning") as mock_warning:
+    with (
+        patch("main.silo_content_is_available", return_value=True),
+        patch("main.generate_service_page_content", side_effect=fake_generate),
+        patch.object(QMessageBox, "warning") as mock_warning,
+    ):
         form._generate_silo_content()
 
     assert len(form.silo_pages) == 2

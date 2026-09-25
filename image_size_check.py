@@ -91,5 +91,7 @@ def check_image_sizes(
     if not items:
         return []
     with ThreadPoolExecutor(max_workers=min(_MAX_WORKERS, len(items))) as pool:
-        results = list(pool.map(lambda item: _check_one(item[0], item[1], timeout), items))
+        results = list(
+            pool.map(lambda item: _check_one(item[0], item[1], timeout), items)
+        )
     return [r for r in results if r]

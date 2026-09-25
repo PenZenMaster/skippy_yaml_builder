@@ -171,7 +171,7 @@ def _parse_page_content(text: str) -> dict:
         )
         if matched_marker:
             current = matched_marker
-            remainder = stripped[len(matched_marker):].strip()
+            remainder = stripped[len(matched_marker) :].strip()
             if remainder:
                 sections[current].append(remainder)
             continue
@@ -246,13 +246,11 @@ def generate_service_page_content(
     cities_text = _format_list(target_cities, "its general service area")
     tone_text = tone.strip() or "professional and approachable"
     location_context = (
-        f' for {business_name}, a {business_category} business serving {cities_text}'
+        f" for {business_name}, a {business_category} business serving {cities_text}"
     )
 
     if page_kind == "category":
-        children_text = _format_list(
-            child_topics or [], "a range of related services"
-        )
+        children_text = _format_list(child_topics or [], "a range of related services")
         page_instruction = (
             f'This is a CATEGORY/silo landing page for "{page_topic}" within the '
             f'"{silo_topic}" silo. It should introduce the category as a whole and '

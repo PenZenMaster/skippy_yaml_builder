@@ -137,7 +137,9 @@ def test_sync_diagram_tier_table_drops_rows_for_removed_tiers(qapp):
     assert form.diagram_tier_accounts_table.rowCount() == 1
 
 
-def test_diagram_tier_accounts_round_trip_through_save_and_load(qapp, tmp_path, monkeypatch):
+def test_diagram_tier_accounts_round_trip_through_save_and_load(
+    qapp, tmp_path, monkeypatch
+):
     from PyQt6.QtWidgets import QTableWidgetItem
 
     form = YAMLForm()
@@ -239,7 +241,9 @@ def test_loading_a_legacy_diagram_file_migrates_flat_ids_onto_every_tier(
     assert form.diagram_tier_accounts_table.item(1, 1).text() == "28205,27502"
 
 
-def test_listicle_saves_flat_field_and_empty_per_tier_field(qapp, tmp_path, monkeypatch):
+def test_listicle_saves_flat_field_and_empty_per_tier_field(
+    qapp, tmp_path, monkeypatch
+):
     form = YAMLForm()
     form.inputs["YACSS Build Type"].setCurrentText("Listicle")
     form.cloud_account_manual_input.setText("28205")

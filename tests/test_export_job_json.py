@@ -118,7 +118,9 @@ def test_build_cloud_stack_job_happy_path_no_warnings(qapp):
     assert job["target_link_text"] == "Acme Plumbing"
     assert job["target_link_text_after"] == "to learn more about emergency plumbing."
     assert job["tier0_pages"] == 1
-    assert job["tiers"] == [{"tier": 1, "pages": 3, "cloud_account_ids": ["28205", "27502"]}]
+    assert job["tiers"] == [
+        {"tier": 1, "pages": 3, "cloud_account_ids": ["28205", "27502"]}
+    ]
     assert job["page_titles"] == ["Home", "Page 1", "Page 2", "Page 3"]
     assert job["content"] == "Some real content."
     assert job["company"] == {
@@ -162,7 +164,9 @@ def test_build_cloud_stack_job_maps_hero_and_content_image_urls(qapp):
     _fill_required_fields(form)
     form.inputs["YACSS Diagram Content"].setPlainText("content")
     form.inputs["Hero Image URL"].setText("https://acmeplumbing.example/hero.jpg")
-    form.inputs["Content Image URL"].setText("https://acmeplumbing.example/van-photo.jpg")
+    form.inputs["Content Image URL"].setText(
+        "https://acmeplumbing.example/van-photo.jpg"
+    )
 
     job, _ = form._build_cloud_stack_job()
 
@@ -211,7 +215,9 @@ def test_build_cloud_stack_job_warns_on_unparseable_maps_embed_code(qapp):
     form.inputs["YACSS Diagram Page Titles (one per line)"].setPlainText("Home")
     form.inputs["YACSS Diagram Content"].setPlainText("content")
     # A bare link instead of the full <iframe ...> HTML -- no src="..." to extract.
-    form.inputs["Google Maps Embed Code"].setPlainText("https://maps.app.goo.gl/gw2ztMTosQA62Wex7")
+    form.inputs["Google Maps Embed Code"].setPlainText(
+        "https://maps.app.goo.gl/gw2ztMTosQA62Wex7"
+    )
 
     job, warnings = form._build_cloud_stack_job()
 
@@ -292,7 +298,9 @@ def test_build_cloud_stack_job_warns_on_page_titles_mismatch(qapp):
     _fill_required_fields(form)
     form.inputs["YACSS Tiers (tier:pages, one per line)"].setPlainText("1:3")
     form.diagram_tier_accounts_table.setItem(0, 1, QTableWidgetItem("28205"))
-    form.inputs["YACSS Diagram Page Titles (one per line)"].setPlainText("Only One Title")
+    form.inputs["YACSS Diagram Page Titles (one per line)"].setPlainText(
+        "Only One Title"
+    )
     form.inputs["YACSS Diagram Content"].setPlainText("content")
 
     job, warnings = form._build_cloud_stack_job()
@@ -318,7 +326,8 @@ def test_export_job_json_refuses_blank_build_type(qapp, monkeypatch, tmp_path):
     monkeypatch.setattr(
         QFileDialog,
         "getSaveFileName",
-        lambda *a, **k: save_dialog_called.append(True) or (str(tmp_path / "x.json"), ""),
+        lambda *a, **k: save_dialog_called.append(True)
+        or (str(tmp_path / "x.json"), ""),
     )
 
     form.export_job_json()
@@ -439,7 +448,11 @@ def test_build_listicle_job_includes_brand_and_urls_when_filled_in(qapp):
     job, warnings = form._build_listicle_job()
 
     assert warnings == []
-    assert job["brand"] == {"name": "Acme Coffee Co", "url": "https://acmecoffee.example", "position": 1}
+    assert job["brand"] == {
+        "name": "Acme Coffee Co",
+        "url": "https://acmecoffee.example",
+        "position": 1,
+    }
     assert job["competitor_urls"] == ["https://someothercafe.example"]
     assert job["target_urls"] == [
         "https://acmecoffee.example",
@@ -477,7 +490,9 @@ def test_build_listicle_job_warns_on_brand_name_without_url(qapp):
 
     job, warnings = form._build_listicle_job()
 
-    assert any("Brand Name is set but" in w and "Brand URL is blank" in w for w in warnings)
+    assert any(
+        "Brand Name is set but" in w and "Brand URL is blank" in w for w in warnings
+    )
     assert "brand" not in job
 
 
@@ -494,7 +509,9 @@ def test_build_listicle_job_warns_on_brand_url_without_name(qapp):
 
     job, warnings = form._build_listicle_job()
 
-    assert any("Brand URL is set but" in w and "Brand Name is blank" in w for w in warnings)
+    assert any(
+        "Brand URL is set but" in w and "Brand Name is blank" in w for w in warnings
+    )
     assert "brand" not in job
 
 
@@ -513,7 +530,10 @@ def test_build_listicle_job_warns_on_non_positive_brand_position(qapp):
     job, warnings = form._build_listicle_job()
 
     assert any("Brand Position" in w and "not a positive" in w for w in warnings)
-    assert job["brand"] == {"name": "Acme Coffee Co", "url": "https://acmecoffee.example"}
+    assert job["brand"] == {
+        "name": "Acme Coffee Co",
+        "url": "https://acmecoffee.example",
+    }
 
 
 def test_build_masspage_job_happy_path_no_warnings(qapp):
@@ -523,7 +543,9 @@ def test_build_masspage_job_happy_path_no_warnings(qapp):
     form.inputs["YACSS Diagram Page Titles (one per line)"].setPlainText(
         "Emergency Plumbing Repair\nDrain Cleaning"
     )
-    form.inputs["YACSS Diagram Content"].setPlainText("Acme Plumbing serves greater Dallas.")
+    form.inputs["YACSS Diagram Content"].setPlainText(
+        "Acme Plumbing serves greater Dallas."
+    )
 
     job, warnings = form._build_masspage_job()
 
@@ -550,8 +572,12 @@ def test_build_masspage_job_extracts_maps_embed_url_from_iframe_snippet(qapp):
     form = YAMLForm()
     form.inputs["YACSS Build Type"].setCurrentText("Masspage_Silo_Local")
     _fill_listicle_masspage_shared_fields(form)
-    form.inputs["YACSS Diagram Page Titles (one per line)"].setPlainText("Emergency Plumbing Repair")
-    form.inputs["YACSS Diagram Content"].setPlainText("Acme Plumbing serves greater Dallas.")
+    form.inputs["YACSS Diagram Page Titles (one per line)"].setPlainText(
+        "Emergency Plumbing Repair"
+    )
+    form.inputs["YACSS Diagram Content"].setPlainText(
+        "Acme Plumbing serves greater Dallas."
+    )
     form.inputs["Google Maps Embed Code"].setPlainText(
         '<iframe src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d2975.25" width="600"></iframe>'
     )
@@ -571,7 +597,9 @@ def test_build_masspage_job_job_id_override_wins_over_auto_derived_suffix(qapp):
     form.inputs["YACSS Diagram Page Titles (one per line)"].setPlainText(
         "Emergency Plumbing Repair\nDrain Cleaning"
     )
-    form.inputs["YACSS Diagram Content"].setPlainText("Acme Plumbing serves greater Dallas.")
+    form.inputs["YACSS Diagram Content"].setPlainText(
+        "Acme Plumbing serves greater Dallas."
+    )
     form.inputs["YACSS Job ID (override)"].setText("acme-plumbing-masspage-01")
 
     job, warnings = form._build_masspage_job()
@@ -607,7 +635,9 @@ def test_export_job_json_writes_listicle_job(qapp, tmp_path, monkeypatch):
 
     out_file = tmp_path / "listicle-export.json"
     _accept_default_job_id(monkeypatch)
-    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(out_file), ""))
+    monkeypatch.setattr(
+        QFileDialog, "getSaveFileName", lambda *a, **k: (str(out_file), "")
+    )
 
     form.export_job_json()
 
@@ -623,12 +653,18 @@ def test_export_job_json_writes_masspage_job(qapp, tmp_path, monkeypatch):
     form = YAMLForm()
     form.inputs["YACSS Build Type"].setCurrentText("Masspage_Silo_Local")
     _fill_listicle_masspage_shared_fields(form)
-    form.inputs["YACSS Diagram Page Titles (one per line)"].setPlainText("Emergency Plumbing Repair")
-    form.inputs["YACSS Diagram Content"].setPlainText("Acme Plumbing serves greater Dallas.")
+    form.inputs["YACSS Diagram Page Titles (one per line)"].setPlainText(
+        "Emergency Plumbing Repair"
+    )
+    form.inputs["YACSS Diagram Content"].setPlainText(
+        "Acme Plumbing serves greater Dallas."
+    )
 
     out_file = tmp_path / "masspage-export.json"
     _accept_default_job_id(monkeypatch)
-    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(out_file), ""))
+    monkeypatch.setattr(
+        QFileDialog, "getSaveFileName", lambda *a, **k: (str(out_file), "")
+    )
 
     form.export_job_json()
 
@@ -640,7 +676,9 @@ def test_export_job_json_writes_masspage_job(qapp, tmp_path, monkeypatch):
     assert data[0]["job_id"] == "acme-plumbing-masspage"
 
 
-def test_export_job_json_defaults_save_dialog_to_rr_yacss_factory_jobs_dir(qapp, monkeypatch):
+def test_export_job_json_defaults_save_dialog_to_rr_yacss_factory_jobs_dir(
+    qapp, monkeypatch
+):
     form = YAMLForm()
     _fill_required_fields(form)
     form.inputs["YACSS Diagram Content"].setPlainText("content")
@@ -649,7 +687,9 @@ def test_export_job_json_defaults_save_dialog_to_rr_yacss_factory_jobs_dir(qapp,
     # This form has warnings (no tiers/page_titles filled in) -- answering
     # "Yes" (proceed anyway) is required to reach the save dialog call at
     # all, which is what this test needs to observe.
-    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+    monkeypatch.setattr(
+        QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes
+    )
     _accept_default_job_id(monkeypatch)
 
     def fake_save_dialog(*args, **kwargs):
@@ -663,7 +703,9 @@ def test_export_job_json_defaults_save_dialog_to_rr_yacss_factory_jobs_dir(qapp,
     assert captured_default_path == [str(DEFAULT_JOB_EXPORT_DIR / "acme-plumbing.json")]
 
 
-def test_export_job_json_writes_valid_json_when_warnings_accepted(qapp, tmp_path, monkeypatch):
+def test_export_job_json_writes_valid_json_when_warnings_accepted(
+    qapp, tmp_path, monkeypatch
+):
     form = YAMLForm()
     _fill_required_fields(form)
     form.inputs["YACSS Diagram Content"].setPlainText("content")
@@ -671,9 +713,13 @@ def test_export_job_json_writes_valid_json_when_warnings_accepted(qapp, tmp_path
     # confirm-anyway path deliberately.
 
     out_file = tmp_path / "export.json"
-    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+    monkeypatch.setattr(
+        QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes
+    )
     _accept_default_job_id(monkeypatch)
-    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(out_file), ""))
+    monkeypatch.setattr(
+        QFileDialog, "getSaveFileName", lambda *a, **k: (str(out_file), "")
+    )
 
     form.export_job_json()
 
@@ -685,19 +731,27 @@ def test_export_job_json_writes_valid_json_when_warnings_accepted(qapp, tmp_path
     assert data[0]["job_id"] == "acme-plumbing"
 
 
-def test_export_job_json_does_not_write_when_warnings_declined(qapp, tmp_path, monkeypatch):
+def test_export_job_json_does_not_write_when_warnings_declined(
+    qapp, tmp_path, monkeypatch
+):
     form = YAMLForm()
     # Blank form guarantees warnings.
     out_file = tmp_path / "should-not-exist.json"
-    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.No)
-    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(out_file), ""))
+    monkeypatch.setattr(
+        QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.No
+    )
+    monkeypatch.setattr(
+        QFileDialog, "getSaveFileName", lambda *a, **k: (str(out_file), "")
+    )
 
     form.export_job_json()
 
     assert not out_file.exists()
 
 
-def test_export_job_json_prompts_for_job_id_when_override_blank(qapp, monkeypatch, tmp_path):
+def test_export_job_json_prompts_for_job_id_when_override_blank(
+    qapp, monkeypatch, tmp_path
+):
     form = YAMLForm()
     _fill_required_fields(form)
     form.inputs["YACSS Tiers (tier:pages, one per line)"].setPlainText("1:3")
@@ -715,7 +769,9 @@ def test_export_job_json_prompts_for_job_id_when_override_blank(qapp, monkeypatc
 
     monkeypatch.setattr(QInputDialog, "getText", fake_get_text)
     out_file = tmp_path / "export.json"
-    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(out_file), ""))
+    monkeypatch.setattr(
+        QFileDialog, "getSaveFileName", lambda *a, **k: (str(out_file), "")
+    )
 
     form.export_job_json()
 
@@ -735,9 +791,13 @@ def test_export_job_json_uses_edited_job_id_from_prompt(qapp, monkeypatch, tmp_p
     )
     form.inputs["YACSS Diagram Content"].setPlainText("Some real content.")
 
-    monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: ("acme-plumbing-02", True))
+    monkeypatch.setattr(
+        QInputDialog, "getText", lambda *a, **k: ("acme-plumbing-02", True)
+    )
     out_file = tmp_path / "export.json"
-    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(out_file), ""))
+    monkeypatch.setattr(
+        QFileDialog, "getSaveFileName", lambda *a, **k: (str(out_file), "")
+    )
 
     form.export_job_json()
 
@@ -746,7 +806,9 @@ def test_export_job_json_uses_edited_job_id_from_prompt(qapp, monkeypatch, tmp_p
     assert data[0]["job_id"] == "acme-plumbing-02"
 
 
-def test_export_job_json_aborts_when_job_id_prompt_cancelled(qapp, monkeypatch, tmp_path):
+def test_export_job_json_aborts_when_job_id_prompt_cancelled(
+    qapp, monkeypatch, tmp_path
+):
     form = YAMLForm()
     _fill_required_fields(form)
     form.inputs["YACSS Tiers (tier:pages, one per line)"].setPlainText("1:3")
@@ -756,12 +818,15 @@ def test_export_job_json_aborts_when_job_id_prompt_cancelled(qapp, monkeypatch, 
     )
     form.inputs["YACSS Diagram Content"].setPlainText("Some real content.")
 
-    monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: ("acme-plumbing", False))
+    monkeypatch.setattr(
+        QInputDialog, "getText", lambda *a, **k: ("acme-plumbing", False)
+    )
     save_dialog_called = []
     monkeypatch.setattr(
         QFileDialog,
         "getSaveFileName",
-        lambda *a, **k: save_dialog_called.append(True) or (str(tmp_path / "x.json"), ""),
+        lambda *a, **k: save_dialog_called.append(True)
+        or (str(tmp_path / "x.json"), ""),
     )
 
     form.export_job_json()
@@ -785,7 +850,8 @@ def test_export_job_json_rejects_blank_job_id_from_prompt(qapp, monkeypatch, tmp
     monkeypatch.setattr(
         QFileDialog,
         "getSaveFileName",
-        lambda *a, **k: save_dialog_called.append(True) or (str(tmp_path / "x.json"), ""),
+        lambda *a, **k: save_dialog_called.append(True)
+        or (str(tmp_path / "x.json"), ""),
     )
 
     form.export_job_json()
@@ -793,7 +859,9 @@ def test_export_job_json_rejects_blank_job_id_from_prompt(qapp, monkeypatch, tmp
     assert save_dialog_called == []
 
 
-def test_export_job_json_skips_prompt_when_override_already_filled_in(qapp, monkeypatch, tmp_path):
+def test_export_job_json_skips_prompt_when_override_already_filled_in(
+    qapp, monkeypatch, tmp_path
+):
     form = YAMLForm()
     _fill_required_fields(form)
     form.inputs["YACSS Tiers (tier:pages, one per line)"].setPlainText("1:3")
@@ -805,11 +873,15 @@ def test_export_job_json_skips_prompt_when_override_already_filled_in(qapp, monk
     form.inputs["YACSS Job ID (override)"].setText("acme-plumbing-01")
 
     def fail_if_called(*args, **kwargs):
-        raise AssertionError("Confirm Job ID prompt should not appear when override is filled in")
+        raise AssertionError(
+            "Confirm Job ID prompt should not appear when override is filled in"
+        )
 
     monkeypatch.setattr(QInputDialog, "getText", fail_if_called)
     out_file = tmp_path / "export.json"
-    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(out_file), ""))
+    monkeypatch.setattr(
+        QFileDialog, "getSaveFileName", lambda *a, **k: (str(out_file), "")
+    )
 
     form.export_job_json()
 
@@ -872,16 +944,17 @@ def test_build_cloud_stack_job_warns_when_more_images_than_pages(qapp):
 def test_content_image_urls_field_round_trips_through_save_and_load(
     qapp, tmp_path, monkeypatch
 ):
-    from PyQt6.QtWidgets import QFileDialog
-
     import yaml
+    from PyQt6.QtWidgets import QFileDialog
 
     form = YAMLForm()
     form.inputs["Content Image URLs (one per line)"].setPlainText(
         "https://acmeplumbing.example/a.jpg\nhttps://acmeplumbing.example/b.jpg"
     )
     out_file = tmp_path / "out.yaml"
-    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(out_file), ""))
+    monkeypatch.setattr(
+        QFileDialog, "getSaveFileName", lambda *a, **k: (str(out_file), "")
+    )
     form.save_yaml()
 
     with open(out_file, "r", encoding="utf-8") as f:
@@ -892,9 +965,13 @@ def test_content_image_urls_field_round_trips_through_save_and_load(
     ]
 
     reloaded = YAMLForm()
-    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *a, **k: (str(out_file), ""))
+    monkeypatch.setattr(
+        QFileDialog, "getOpenFileName", lambda *a, **k: (str(out_file), "")
+    )
     reloaded.load_yaml()
-    assert reloaded.inputs["Content Image URLs (one per line)"].toPlainText().splitlines() == [
+    assert reloaded.inputs[
+        "Content Image URLs (one per line)"
+    ].toPlainText().splitlines() == [
         "https://acmeplumbing.example/a.jpg",
         "https://acmeplumbing.example/b.jpg",
     ]
@@ -952,4 +1029,7 @@ def test_image_size_warnings_skips_network_when_no_uploaded_images(qapp, monkeyp
     monkeypatch.setattr("main.check_image_sizes", fail)
     form = YAMLForm()
 
-    assert form._image_size_warnings({"content_image_url": "https://x.example/d.jpg"}) == []
+    assert (
+        form._image_size_warnings({"content_image_url": "https://x.example/d.jpg"})
+        == []
+    )

@@ -55,7 +55,12 @@ def test_exactly_at_cap_is_fine_and_one_byte_over_warns(monkeypatch):
     _patch(
         monkeypatch,
         head=lambda url, **k: _Resp(
-            200, {"Content-Length": str(MAX_UPLOAD_IMAGE_BYTES + (1 if "over" in url else 0))}
+            200,
+            {
+                "Content-Length": str(
+                    MAX_UPLOAD_IMAGE_BYTES + (1 if "over" in url else 0)
+                )
+            },
         ),
     )
 

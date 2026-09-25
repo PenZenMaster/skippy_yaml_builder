@@ -4,26 +4,39 @@ from PyQt6.QtWidgets import QDialog, QFileDialog, QMessageBox
 from main import YAMLForm, _CloudAccountPickerDialog
 from yacss_api import YacssApiError
 
-
 SAMPLE_TEMPLATES = [
     {"id": "porto-001", "name": "Porto Business Template"},
     {"id": "classic-001", "name": "Classic Template"},
 ]
 
 SAMPLE_ACCOUNTS = [
-    {"id": "25399", "name": "Google Cloud", "provider": "google_cloud", "client": "George Penzenik"},
+    {
+        "id": "25399",
+        "name": "Google Cloud",
+        "provider": "google_cloud",
+        "client": "George Penzenik",
+    },
     {"id": "25398", "name": "Google Cloud", "provider": "google_cloud", "client": ""},
 ]
 
 SAMPLE_AI_PROVIDERS = [
-    {"provider": "openai", "configured": True, "model": "gpt-5-mini", "is_default": True},
+    {
+        "provider": "openai",
+        "configured": True,
+        "model": "gpt-5-mini",
+        "is_default": True,
+    },
     {"provider": "openrouter", "configured": False, "model": None, "is_default": False},
 ]
 
 SAMPLE_AI_MODELS = [
     {"id": "gpt-5-mini", "name": "GPT-5 Mini", "provider": "openai"},
     {"id": "gpt-5", "name": "GPT-5", "provider": "openai"},
-    {"id": "anthropic/claude-haiku-4.5", "name": "Claude Haiku 4.5", "provider": "openrouter"},
+    {
+        "id": "anthropic/claude-haiku-4.5",
+        "name": "Claude Haiku 4.5",
+        "provider": "openrouter",
+    },
 ]
 
 
@@ -44,7 +57,9 @@ def test_cloud_account_list_populates_with_client_disambiguation(qapp, monkeypat
     assert "(client:" not in labeled[1]
 
 
-def test_live_lookup_failure_shows_one_warning_and_leaves_fields_empty(qapp, monkeypatch):
+def test_live_lookup_failure_shows_one_warning_and_leaves_fields_empty(
+    qapp, monkeypatch
+):
     def boom():
         raise YacssApiError("no token configured")
 
@@ -133,8 +148,14 @@ def test_ai_platform_combo_populates_configured_providers_first(qapp, monkeypatc
     form = YAMLForm()
     combo = form.inputs["YACSS AI Platform"]
 
-    assert [combo.itemText(i) for i in range(combo.count())] == ["", "openai", "openrouter"]
-    assert combo.itemData(1, Qt.ItemDataRole.ToolTipRole) == "Configured on this account"
+    assert [combo.itemText(i) for i in range(combo.count())] == [
+        "",
+        "openai",
+        "openrouter",
+    ]
+    assert (
+        combo.itemData(1, Qt.ItemDataRole.ToolTipRole) == "Configured on this account"
+    )
     assert "NOT configured" in combo.itemData(2, Qt.ItemDataRole.ToolTipRole)
     # Still editable -- a provider not in this account's list must remain
     # enterable, same as YACSS Template's own fallback.
@@ -150,16 +171,21 @@ def test_ai_model_combo_filters_by_selected_platform(qapp, monkeypatch):
 
     platform_combo.setCurrentText("openai")
     assert [model_combo.itemText(i) for i in range(model_combo.count())] == [
-        "", "gpt-5-mini", "gpt-5",
+        "",
+        "gpt-5-mini",
+        "gpt-5",
     ]
 
     platform_combo.setCurrentText("openrouter")
     assert [model_combo.itemText(i) for i in range(model_combo.count())] == [
-        "", "anthropic/claude-haiku-4.5",
+        "",
+        "anthropic/claude-haiku-4.5",
     ]
 
 
-def test_ai_model_combo_preserves_current_value_across_platform_change(qapp, monkeypatch):
+def test_ai_model_combo_preserves_current_value_across_platform_change(
+    qapp, monkeypatch
+):
     monkeypatch.setattr("main.fetch_ai_models", lambda: SAMPLE_AI_MODELS)
     form = YAMLForm()
     model_combo = form.inputs["YACSS AI Model"]
@@ -224,7 +250,9 @@ def test_cloud_account_picker_cancel_leaves_row_untouched(qapp, monkeypatch):
     form.inputs["YACSS Tiers (tier:pages, one per line)"].setPlainText("1:3")
     form.diagram_tier_accounts_table.item(0, 1).setText("11884")
 
-    monkeypatch.setattr(_CloudAccountPickerDialog, "exec", lambda self: QDialog.DialogCode.Rejected)
+    monkeypatch.setattr(
+        _CloudAccountPickerDialog, "exec", lambda self: QDialog.DialogCode.Rejected
+    )
     form._open_cloud_account_picker(0)
 
     assert form.diagram_tier_accounts_table.item(0, 1).text() == "11884"

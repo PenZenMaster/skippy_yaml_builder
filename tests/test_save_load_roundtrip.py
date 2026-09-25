@@ -48,7 +48,9 @@ def test_build_type_combo_loads_legacy_lowercase_case_insensitively(
 ):
     src_file = tmp_path / "legacy.yaml"
     with open(src_file, "w", encoding="utf-8") as f:
-        yaml.dump({"YACSS Build Type": "diagram"}, f, allow_unicode=True, sort_keys=False)
+        yaml.dump(
+            {"YACSS Build Type": "diagram"}, f, allow_unicode=True, sort_keys=False
+        )
 
     form = YAMLForm()
     monkeypatch.setattr(
@@ -64,7 +66,9 @@ def test_build_type_combo_falls_back_to_blank_for_unrecognized_value(
 ):
     src_file = tmp_path / "bogus.yaml"
     with open(src_file, "w", encoding="utf-8") as f:
-        yaml.dump({"YACSS Build Type": "nonsense"}, f, allow_unicode=True, sort_keys=False)
+        yaml.dump(
+            {"YACSS Build Type": "nonsense"}, f, allow_unicode=True, sort_keys=False
+        )
 
     form = YAMLForm()
     monkeypatch.setattr(
@@ -205,8 +209,7 @@ def test_full_round_trip_save_then_load(qapp, tmp_path, monkeypatch):
         == "Chicago\nNaperville\nJoliet"
     )
     assert (
-        reloaded.inputs["* Services (one per line)"].toPlainText()
-        == "Roofing\nSiding"
+        reloaded.inputs["* Services (one per line)"].toPlainText() == "Roofing\nSiding"
     )
     assert reloaded._serialize_faq_rows() == [
         {"question": "Q1?", "answer": "A1."},
@@ -286,7 +289,9 @@ def test_load_reformats_a_differently_punctuated_phone_number_into_the_mask(
     assert form.inputs["Broker Phone"].text() == "(773) 555-0100"
 
 
-def test_load_reads_a_mask_formatted_phone_number_unchanged(qapp, tmp_path, monkeypatch):
+def test_load_reads_a_mask_formatted_phone_number_unchanged(
+    qapp, tmp_path, monkeypatch
+):
     src_file = tmp_path / "phone_exact.yaml"
     with open(src_file, "w", encoding="utf-8") as f:
         yaml.dump({"* Phone": "(214) 555-0100"}, f, allow_unicode=True, sort_keys=False)

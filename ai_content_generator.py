@@ -34,7 +34,6 @@ Comments:
 
 import re
 from pathlib import Path
-from typing import Optional
 
 from dotenv import dotenv_values
 

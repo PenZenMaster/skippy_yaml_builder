@@ -77,7 +77,9 @@ MAX_CLUSTERS = 12
 MAX_PAA_QUESTIONS = 10
 
 # Sibling project layout assumed, same as yacss_api.py's RR_YACSS_FACTORY_ENV.
-RR_YACSS_FACTORY_ENV = Path(__file__).resolve().parent.parent / "rr_yacss_factory" / ".env"
+RR_YACSS_FACTORY_ENV = (
+    Path(__file__).resolve().parent.parent / "rr_yacss_factory" / ".env"
+)
 
 
 class KeywordResearchError(Exception):
@@ -114,7 +116,9 @@ def _post_task(path: str, body: dict) -> list:
         )
         response.raise_for_status()
     except requests.RequestException as exc:
-        raise KeywordResearchError(f"Could not reach DataForSEO ({path}): {exc}") from exc
+        raise KeywordResearchError(
+            f"Could not reach DataForSEO ({path}): {exc}"
+        ) from exc
     parsed = response.json()
     if parsed.get("status_code") != 20000:
         raise KeywordResearchError(
@@ -125,13 +129,34 @@ def _post_task(path: str, body: dict) -> list:
     if task is None or task.get("status_code") != 20000:
         status_code = task.get("status_code") if task else "unknown"
         status_message = task.get("status_message") if task else "no task returned"
-        raise KeywordResearchError(f"DataForSEO task error {status_code}: {status_message}")
+        raise KeywordResearchError(
+            f"DataForSEO task error {status_code}: {status_message}"
+        )
     return task.get("result") or []
 
 
 STOPWORDS = {
-    "a", "an", "the", "and", "or", "for", "of", "in", "on", "to", "with",
-    "near", "me", "how", "what", "is", "are", "vs", "best", "top", "much",
+    "a",
+    "an",
+    "the",
+    "and",
+    "or",
+    "for",
+    "of",
+    "in",
+    "on",
+    "to",
+    "with",
+    "near",
+    "me",
+    "how",
+    "what",
+    "is",
+    "are",
+    "vs",
+    "best",
+    "top",
+    "much",
     "per",
 }
 
@@ -156,18 +181,80 @@ def normalize_token(token: str) -> str:
 GENERIC_DESCRIPTORS = {
     normalize_token(word)
     for word in [
-        "affordable", "cheap", "best", "top", "local", "emergency", "same",
-        "day", "open", "now", "hour", "hours", "24", "cost", "price", "prices",
-        "quote", "quotes", "review", "reviews", "within", "mile", "miles", "mi",
-        "free", "month", "monthly", "annual", "insurance", "insured", "licensed",
-        "warranty", "guarantee", "sweep", "sweeper", "technician", "specialist",
-        "installer", "installation", "replacement", "maintenance", "restoration",
-        "sink", "trailer", "station", "party", "luxury", "wood", "burner", "stove",
-        "residential", "commercial", "overhead", "inspection", "inspect",
-        "inspector", "manufacturer", "manufacturers", "operator", "operators",
-        "company", "companies", "companie", "service", "services", "repairman",
-        "repairmen", "repairwoman", "repairwomen", "rent", "buy", "buying",
-        "week", "weekly",
+        "affordable",
+        "cheap",
+        "best",
+        "top",
+        "local",
+        "emergency",
+        "same",
+        "day",
+        "open",
+        "now",
+        "hour",
+        "hours",
+        "24",
+        "cost",
+        "price",
+        "prices",
+        "quote",
+        "quotes",
+        "review",
+        "reviews",
+        "within",
+        "mile",
+        "miles",
+        "mi",
+        "free",
+        "month",
+        "monthly",
+        "annual",
+        "insurance",
+        "insured",
+        "licensed",
+        "warranty",
+        "guarantee",
+        "sweep",
+        "sweeper",
+        "technician",
+        "specialist",
+        "installer",
+        "installation",
+        "replacement",
+        "maintenance",
+        "restoration",
+        "sink",
+        "trailer",
+        "station",
+        "party",
+        "luxury",
+        "wood",
+        "burner",
+        "stove",
+        "residential",
+        "commercial",
+        "overhead",
+        "inspection",
+        "inspect",
+        "inspector",
+        "manufacturer",
+        "manufacturers",
+        "operator",
+        "operators",
+        "company",
+        "companies",
+        "companie",
+        "service",
+        "services",
+        "repairman",
+        "repairmen",
+        "repairwoman",
+        "repairwomen",
+        "rent",
+        "buy",
+        "buying",
+        "week",
+        "weekly",
     ]
 }
 
@@ -178,34 +265,120 @@ GENERIC_DESCRIPTORS = {
 LOCATION_WORDS = {
     normalize_token(word)
     for word in [
-        "alabama", "alaska", "arizona", "arkansas", "california", "colorado",
-        "connecticut", "delaware", "florida", "georgia", "hawaii", "idaho",
-        "illinois", "indiana", "iowa", "kansas", "kentucky", "louisiana", "maine",
-        "maryland", "massachusetts", "michigan", "minnesota", "mississippi",
-        "missouri", "montana", "nebraska", "nevada", "hampshire", "jersey",
-        "mexico", "york", "carolina", "dakota", "ohio", "oklahoma", "oregon",
-        "pennsylvania", "rhode", "island", "tennessee", "texas", "utah",
-        "vermont", "virginia", "washington", "wisconsin", "wyoming",
-        "los", "angeles", "chicago", "milwaukee", "houston", "phoenix",
-        "philadelphia", "antonio", "diego", "dallas", "austin", "jacksonville",
+        "alabama",
+        "alaska",
+        "arizona",
+        "arkansas",
+        "california",
+        "colorado",
+        "connecticut",
+        "delaware",
+        "florida",
+        "georgia",
+        "hawaii",
+        "idaho",
+        "illinois",
+        "indiana",
+        "iowa",
+        "kansas",
+        "kentucky",
+        "louisiana",
+        "maine",
+        "maryland",
+        "massachusetts",
+        "michigan",
+        "minnesota",
+        "mississippi",
+        "missouri",
+        "montana",
+        "nebraska",
+        "nevada",
+        "hampshire",
+        "jersey",
+        "mexico",
+        "york",
+        "carolina",
+        "dakota",
+        "ohio",
+        "oklahoma",
+        "oregon",
+        "pennsylvania",
+        "rhode",
+        "island",
+        "tennessee",
+        "texas",
+        "utah",
+        "vermont",
+        "virginia",
+        "washington",
+        "wisconsin",
+        "wyoming",
+        "los",
+        "angeles",
+        "chicago",
+        "milwaukee",
+        "houston",
+        "phoenix",
+        "philadelphia",
+        "antonio",
+        "diego",
+        "dallas",
+        "austin",
+        "jacksonville",
     ]
 }
 
 STATE_ABBREVIATIONS = {
-    "AL": "alabama", "AK": "alaska", "AZ": "arizona", "AR": "arkansas",
-    "CA": "california", "CO": "colorado", "CT": "connecticut", "DE": "delaware",
-    "FL": "florida", "GA": "georgia", "HI": "hawaii", "ID": "idaho",
-    "IL": "illinois", "IN": "indiana", "IA": "iowa", "KS": "kansas",
-    "KY": "kentucky", "LA": "louisiana", "ME": "maine", "MD": "maryland",
-    "MA": "massachusetts", "MI": "michigan", "MN": "minnesota",
-    "MS": "mississippi", "MO": "missouri", "MT": "montana", "NE": "nebraska",
-    "NV": "nevada", "NH": "new hampshire", "NJ": "new jersey",
-    "NM": "new mexico", "NY": "new york", "NC": "north carolina",
-    "ND": "north dakota", "OH": "ohio", "OK": "oklahoma", "OR": "oregon",
-    "PA": "pennsylvania", "RI": "rhode island", "SC": "south carolina",
-    "SD": "south dakota", "TN": "tennessee", "TX": "texas", "UT": "utah",
-    "VT": "vermont", "VA": "virginia", "WA": "washington",
-    "WV": "west virginia", "WI": "wisconsin", "WY": "wyoming",
+    "AL": "alabama",
+    "AK": "alaska",
+    "AZ": "arizona",
+    "AR": "arkansas",
+    "CA": "california",
+    "CO": "colorado",
+    "CT": "connecticut",
+    "DE": "delaware",
+    "FL": "florida",
+    "GA": "georgia",
+    "HI": "hawaii",
+    "ID": "idaho",
+    "IL": "illinois",
+    "IN": "indiana",
+    "IA": "iowa",
+    "KS": "kansas",
+    "KY": "kentucky",
+    "LA": "louisiana",
+    "ME": "maine",
+    "MD": "maryland",
+    "MA": "massachusetts",
+    "MI": "michigan",
+    "MN": "minnesota",
+    "MS": "mississippi",
+    "MO": "missouri",
+    "MT": "montana",
+    "NE": "nebraska",
+    "NV": "nevada",
+    "NH": "new hampshire",
+    "NJ": "new jersey",
+    "NM": "new mexico",
+    "NY": "new york",
+    "NC": "north carolina",
+    "ND": "north dakota",
+    "OH": "ohio",
+    "OK": "oklahoma",
+    "OR": "oregon",
+    "PA": "pennsylvania",
+    "RI": "rhode island",
+    "SC": "south carolina",
+    "SD": "south dakota",
+    "TN": "tennessee",
+    "TX": "texas",
+    "UT": "utah",
+    "VT": "vermont",
+    "VA": "virginia",
+    "WA": "washington",
+    "WV": "west virginia",
+    "WI": "wisconsin",
+    "WY": "wyoming",
     "DC": "district of columbia",
 }
 
@@ -351,7 +524,9 @@ def fetch_search_intents(keywords: list[str]) -> dict[str, str]:
     return intent_by_keyword
 
 
-def fetch_people_also_ask(seed: str, max_questions: int = MAX_PAA_QUESTIONS) -> list[str]:
+def fetch_people_also_ask(
+    seed: str, max_questions: int = MAX_PAA_QUESTIONS
+) -> list[str]:
     """Returns up to `max_questions` real Google "People Also Ask"
     questions for `seed`, via DataForSEO's SERP API (serp/google/organic/
     live/advanced) -- a genuinely different DataForSEO product from every
@@ -390,7 +565,9 @@ def fetch_people_also_ask(seed: str, max_questions: int = MAX_PAA_QUESTIONS) -> 
 
 
 def _title_case(text: str) -> str:
-    return " ".join(word[:1].upper() + word[1:] if word else word for word in text.split(" "))
+    return " ".join(
+        word[:1].upper() + word[1:] if word else word for word in text.split(" ")
+    )
 
 
 def _flag_reason(kw: dict) -> str | None:
@@ -497,7 +674,15 @@ def cluster_keywords(
     for core_keyword, members in by_core_keyword.items():
         for member in members:
             remaining.remove(member)
-        clusters.append(_make_cluster(seed_tokens, local_location_tokens, f"core: {core_keyword}", members, core_keyword))
+        clusters.append(
+            _make_cluster(
+                seed_tokens,
+                local_location_tokens,
+                f"core: {core_keyword}",
+                members,
+                core_keyword,
+            )
+        )
 
     # Tier 2: exact match on the full modifier-word signature.
     by_modifier_signature: dict[str, list[dict]] = {}
@@ -512,7 +697,11 @@ def cluster_keywords(
             continue
         for member in members:
             remaining.remove(member)
-        clusters.append(_make_cluster(seed_tokens, local_location_tokens, f"modifiers: {signature}", members))
+        clusters.append(
+            _make_cluster(
+                seed_tokens, local_location_tokens, f"modifiers: {signature}", members
+            )
+        )
 
     # Tier 3: greedily group by one shared modifier word, capped so it can
     # only ever cover a minority of what's left.
@@ -537,11 +726,17 @@ def cluster_keywords(
         members = [kw for kw in remaining if token in modifiers_of(kw)]
         for member in members:
             remaining.remove(member)
-        clusters.append(_make_cluster(seed_tokens, local_location_tokens, f"shared word: {token}", members))
+        clusters.append(
+            _make_cluster(
+                seed_tokens, local_location_tokens, f"shared word: {token}", members
+            )
+        )
 
     # Tier 4: true leftovers, each its own cluster.
     for kw in remaining:
-        clusters.append(_make_cluster(seed_tokens, local_location_tokens, "singleton", [kw]))
+        clusters.append(
+            _make_cluster(seed_tokens, local_location_tokens, "singleton", [kw])
+        )
 
     return sorted(clusters, key=lambda c: c["total_search_volume"], reverse=True)
 

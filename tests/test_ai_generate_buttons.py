@@ -15,7 +15,9 @@ def _fill_diagram_required_fields(form):
     form.inputs["* Client Name"].setText("Acme Plumbing")
     form.inputs["* Business Category"].setText("Plumbing")
     form.inputs["* Target Cities (one per line)"].setPlainText("Dallas\nFort Worth")
-    form.inputs["* Services (one per line)"].setPlainText("Drain Cleaning\nWater Heater Repair")
+    form.inputs["* Services (one per line)"].setPlainText(
+        "Drain Cleaning\nWater Heater Repair"
+    )
     form.inputs["YACSS Build Type"].setCurrentText("Diagram")
     form.inputs["YACSS Bucket Keyword"].setText("emergency plumber dallas")
     form.inputs["YACSS Tier0 Pages"].setText("1")
@@ -38,7 +40,9 @@ def test_ai_generate_buttons_exist_on_yacss_build_tab(qapp):
 def test_generate_page_titles_warns_when_ai_unavailable(qapp, monkeypatch):
     monkeypatch.setattr(main, "ai_content_is_available", lambda: False)
     warnings = []
-    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: warnings.append(a) or None)
+    monkeypatch.setattr(
+        QMessageBox, "warning", lambda *a, **k: warnings.append(a) or None
+    )
 
     form = YAMLForm()
     _fill_diagram_required_fields(form)
@@ -51,7 +55,9 @@ def test_generate_page_titles_warns_when_ai_unavailable(qapp, monkeypatch):
 def test_generate_page_titles_warns_when_not_diagram_build_type(qapp, monkeypatch):
     monkeypatch.setattr(main, "ai_content_is_available", lambda: True)
     warnings = []
-    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: warnings.append(a) or None)
+    monkeypatch.setattr(
+        QMessageBox, "warning", lambda *a, **k: warnings.append(a) or None
+    )
 
     form = YAMLForm()
     _fill_diagram_required_fields(form)
@@ -65,7 +71,9 @@ def test_generate_page_titles_warns_when_not_diagram_build_type(qapp, monkeypatc
 def test_generate_page_titles_warns_on_missing_business_info(qapp, monkeypatch):
     monkeypatch.setattr(main, "ai_content_is_available", lambda: True)
     warnings = []
-    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: warnings.append(a) or None)
+    monkeypatch.setattr(
+        QMessageBox, "warning", lambda *a, **k: warnings.append(a) or None
+    )
 
     form = YAMLForm()
     form.inputs["YACSS Build Type"].setCurrentText("Diagram")
@@ -85,7 +93,9 @@ def test_generate_page_titles_names_only_the_actually_missing_field(qapp, monkey
     only the field(s) that are actually blank."""
     monkeypatch.setattr(main, "ai_content_is_available", lambda: True)
     warnings = []
-    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: warnings.append(a) or None)
+    monkeypatch.setattr(
+        QMessageBox, "warning", lambda *a, **k: warnings.append(a) or None
+    )
 
     form = YAMLForm()
     form.inputs["YACSS Build Type"].setCurrentText("Diagram")
@@ -104,7 +114,9 @@ def test_generate_page_titles_names_only_the_actually_missing_field(qapp, monkey
 def test_generate_page_titles_warns_when_expected_count_is_zero(qapp, monkeypatch):
     monkeypatch.setattr(main, "ai_content_is_available", lambda: True)
     warnings = []
-    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: warnings.append(a) or None)
+    monkeypatch.setattr(
+        QMessageBox, "warning", lambda *a, **k: warnings.append(a) or None
+    )
 
     form = YAMLForm()
     _fill_diagram_required_fields(form)
@@ -119,7 +131,9 @@ def test_generate_page_titles_warns_when_expected_count_is_zero(qapp, monkeypatc
 def test_generate_content_warns_on_missing_business_info(qapp, monkeypatch):
     monkeypatch.setattr(main, "ai_content_is_available", lambda: True)
     warnings = []
-    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: warnings.append(a) or None)
+    monkeypatch.setattr(
+        QMessageBox, "warning", lambda *a, **k: warnings.append(a) or None
+    )
 
     form = YAMLForm()
     form.inputs["YACSS Build Type"].setCurrentText("Diagram")
@@ -181,7 +195,10 @@ def test_generate_page_titles_does_not_apply_when_dialog_cancelled(qapp, monkeyp
     form.inputs["YACSS Diagram Page Titles (one per line)"].setPlainText("Existing")
     form._generate_diagram_page_titles()
 
-    assert form.inputs["YACSS Diagram Page Titles (one per line)"].toPlainText() == "Existing"
+    assert (
+        form.inputs["YACSS Diagram Page Titles (one per line)"].toPlainText()
+        == "Existing"
+    )
 
 
 def test_generate_page_titles_shows_error_on_generation_failure(qapp, monkeypatch):
@@ -192,7 +209,9 @@ def test_generate_page_titles_shows_error_on_generation_failure(qapp, monkeypatc
 
     monkeypatch.setattr(main, "generate_diagram_page_titles", boom)
     errors = []
-    monkeypatch.setattr(QMessageBox, "critical", lambda *a, **k: errors.append(a) or None)
+    monkeypatch.setattr(
+        QMessageBox, "critical", lambda *a, **k: errors.append(a) or None
+    )
 
     form = YAMLForm()
     _fill_diagram_required_fields(form)
@@ -226,7 +245,10 @@ def test_generate_content_shows_dialog_and_applies_accepted_text(qapp, monkeypat
     _fill_diagram_required_fields(form)
     form._generate_diagram_content()
 
-    assert form.inputs["YACSS Diagram Content"].toPlainText() == "Some {spun|generated} content."
+    assert (
+        form.inputs["YACSS Diagram Content"].toPlainText()
+        == "Some {spun|generated} content."
+    )
 
 
 def test_ai_generated_text_dialog_shows_live_count_mismatch_and_updates_on_edit(qapp):

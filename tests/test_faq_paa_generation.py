@@ -11,7 +11,7 @@ from unittest.mock import patch
 from PyQt6.QtWidgets import QMessageBox
 
 import main
-from keyword_research_api import KeywordResearchError, MAX_PAA_QUESTIONS
+from keyword_research_api import MAX_PAA_QUESTIONS, KeywordResearchError
 from main import YAMLForm
 
 
@@ -72,7 +72,9 @@ def test_generate_faq_from_paa_shows_error_when_paa_lookup_fails(qapp, monkeypat
     assert "People Also Ask lookup failed" in mock_critical.call_args.args[1]
 
 
-def test_generate_faq_from_paa_shows_error_when_answer_generation_fails(qapp, monkeypatch):
+def test_generate_faq_from_paa_shows_error_when_answer_generation_fails(
+    qapp, monkeypatch
+):
     form = YAMLForm()
     _fill_seed(form)
     monkeypatch.setattr(main, "ai_content_is_available", lambda: True)
@@ -91,14 +93,19 @@ def test_generate_faq_from_paa_shows_error_when_answer_generation_fails(qapp, mo
     assert form.faq_table.rowCount() == 0
 
 
-def test_generate_faq_from_paa_appends_generated_rows_to_existing_faqs(qapp, monkeypatch):
+def test_generate_faq_from_paa_appends_generated_rows_to_existing_faqs(
+    qapp, monkeypatch
+):
     form = YAMLForm()
     _fill_seed(form)
     form._add_faq_row("Existing question?", "Existing answer.")
     form.faq_paa_count_spinbox.setValue(2)
 
     questions = ["How much does garage door repair cost?", "How long does it take?"]
-    answers = ["It typically costs $150-$400 depending on the issue.", "Most repairs take under an hour."]
+    answers = [
+        "It typically costs $150-$400 depending on the issue.",
+        "Most repairs take under an hour.",
+    ]
 
     monkeypatch.setattr(main, "ai_content_is_available", lambda: True)
 
@@ -125,7 +132,9 @@ def test_generate_faq_from_paa_appends_generated_rows_to_existing_faqs(qapp, mon
     mock_information.assert_called_once()
 
 
-def test_generate_faq_from_paa_adds_a_blank_answer_when_the_model_skips_a_question(qapp, monkeypatch):
+def test_generate_faq_from_paa_adds_a_blank_answer_when_the_model_skips_a_question(
+    qapp, monkeypatch
+):
     """generate_faq_answers can return "" for a question it didn't answer
     (see that function's own doc comment) -- the question must still be
     added to the table (blank answer, visibly needing manual follow-up),
@@ -134,7 +143,9 @@ def test_generate_faq_from_paa_adds_a_blank_answer_when_the_model_skips_a_questi
     _fill_seed(form)
     monkeypatch.setattr(main, "ai_content_is_available", lambda: True)
     monkeypatch.setattr(
-        main, "fetch_people_also_ask", lambda seed, count: ["Question A?", "Question B?"]
+        main,
+        "fetch_people_also_ask",
+        lambda seed, count: ["Question A?", "Question B?"],
     )
     monkeypatch.setattr(main, "generate_faq_answers", lambda *a, **k: ["Answer A.", ""])
 

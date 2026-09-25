@@ -1,8 +1,14 @@
-from PyQt6.QtWidgets import (
-    QDialog, QLabel, QLineEdit, QTextEdit, QVBoxLayout, QHBoxLayout,
-    QPushButton, QMessageBox
-)
 from PyQt6.QtGui import QFont
+from PyQt6.QtWidgets import (
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QTextEdit,
+    QVBoxLayout,
+)
 
 
 class CityEmbedDialog(QDialog):
@@ -58,5 +64,5 @@ class CityEmbedDialog(QDialog):
         return {
             "city": self.city_input.text().strip(),
             "state": self.state_input.text().strip(),
-            "embed_code": self.embed_input.toPlainText().strip()
+            "embed_code": self.embed_input.toPlainText().strip(),
         }
