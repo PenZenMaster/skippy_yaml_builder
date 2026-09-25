@@ -42,7 +42,9 @@ from PyQt6.QtWidgets import (
 )
 
 from ai_content_generator import (
+    MIN_DIAGRAM_CONTENT_WORDS,
     AiContentError,
+    count_rendered_words,
     generate_diagram_content,
     generate_diagram_page_titles,
     generate_faq_answers,
@@ -324,10 +326,12 @@ class _AIGeneratedTextDialog(QDialog):
         regenerate_callback,
         parent=None,
         required_line_count: Optional[int] = None,
+        min_word_count: Optional[int] = None,
     ):
         super().__init__(parent)
         self.regenerate_callback = regenerate_callback
         self.required_line_count = required_line_count
+        self.min_word_count = min_word_count
         self.setWindowTitle(title)
         self.setMinimumWidth(600)
         self.setMinimumHeight(400)
@@ -342,14 +346,16 @@ class _AIGeneratedTextDialog(QDialog):
         layout.addWidget(info_label)
 
         # Live count check for callers that pass required_line_count (page
-        # titles only) -- a real report showed the AI returning 20 lines
+        # titles) or min_word_count (Diagram Content, counted with spintax
+        # resolved to each group's shortest option so it is a lower bound
+        # on any real rendering) -- a real report showed the AI returning 20 lines
         # for a 19-required batch and the user only finding out from the
         # underlying form's own counter *after* already clicking Accept.
         # Same "X/Y OK" live-feedback pattern as the main form's
         # _update_page_titles_count_label, so a count mismatch is visible
         # here, before Accept, not after.
         self.count_label = None
-        if required_line_count is not None:
+        if required_line_count is not None or min_word_count is not None:
             self.count_label = QLabel()
             self.count_label.setWordWrap(True)
             layout.addWidget(self.count_label)
@@ -393,6 +399,21 @@ class _AIGeneratedTextDialog(QDialog):
 
     def _update_count_label(self):
         if self.count_label is None:
+            return
+        if self.min_word_count is not None:
+            words = count_rendered_words(self.content_preview.toPlainText())
+            required_words = self.min_word_count
+            if words >= required_words:
+                self.count_label.setText(
+                    f"{words}/{required_words} rendered words -- OK"
+                )
+                self.count_label.setStyleSheet("color: green;")
+            else:
+                self.count_label.setText(
+                    f"{words}/{required_words} rendered words -- below the "
+                    "minimum; Regenerate or add text before accepting."
+                )
+                self.count_label.setStyleSheet("color: #b00000; font-weight: bold;")
             return
         current = len(
             [
@@ -2526,6 +2547,7 @@ class YAMLForm(QMainWindow):
             content=content,
             regenerate_callback=do_generate,
             parent=self,
+            min_word_count=MIN_DIAGRAM_CONTENT_WORDS,
         )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._apply_generated_diagram_content(dialog.result_text())

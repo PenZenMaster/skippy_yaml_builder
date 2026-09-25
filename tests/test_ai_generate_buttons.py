@@ -283,3 +283,30 @@ def test_ai_generated_text_dialog_has_no_count_label_when_count_not_required(qap
         regenerate_callback=lambda: None,
     )
     assert dialog.count_label is None
+
+
+def test_ai_generated_text_dialog_shows_live_word_count_against_minimum(qapp):
+    """Diagram Content preview shows rendered-word progress (spintax
+    resolved to the shortest option) and flips to OK as text is added."""
+    dialog = _AIGeneratedTextDialog(
+        title="AI Generated Diagram Content",
+        field_name="Diagram Content",
+        content="{Short|Tiny} draft of five words",
+        regenerate_callback=lambda: None,
+        min_word_count=10,
+    )
+    assert "5/10 rendered words" in dialog.count_label.text()
+    assert "below the minimum" in dialog.count_label.text()
+
+    dialog.content_preview.setPlainText(" ".join(["word"] * 10))
+    assert "10/10 rendered words -- OK" in dialog.count_label.text()
+
+
+def test_ai_generated_text_dialog_without_counts_has_no_label(qapp):
+    dialog = _AIGeneratedTextDialog(
+        title="t",
+        field_name="f",
+        content="text",
+        regenerate_callback=lambda: None,
+    )
+    assert dialog.count_label is None

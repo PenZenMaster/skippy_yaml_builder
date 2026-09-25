@@ -21,7 +21,7 @@ Created Date:
 2026-08-27
 
 Last Modified Date:
-2026-09-13
+2026-09-25
 
 Comments:
 - v1.00 Initial implementation.
@@ -30,6 +30,11 @@ Comments:
   PAA question (see keyword_research_api.fetch_people_also_ask for where
   the questions themselves come from -- this module never invents
   questions, only answers them).
+- v1.02 generate_diagram_content now guarantees at least
+  MIN_DIAGRAM_CONTENT_WORDS (750) words of *rendered* content (spintax
+  resolved to each group's shortest option, so every possible rendering
+  qualifies), retrying up to three times and returning the longest draft.
+  Added count_rendered_words/render_spintax_min.
 """
 
 import re
@@ -55,6 +60,19 @@ CLOUD_STACK_GENERATOR_ENV = (
 DEFAULT_MODEL = "gpt-4o-mini"
 DEFAULT_MAX_TOKENS = 2000
 DEFAULT_TEMPERATURE = 0.7
+
+# Diagram Content length contract. The floor is on RENDERED words (spintax
+# resolved), and the prompt asks for a higher target so a model that lands a
+# little short of what it was asked for still clears the floor. Spintax
+# alternatives inflate the raw token count well past the rendered word count,
+# hence the token floor (an .env OPENAI_MAX_TOKENS below it would truncate
+# the draft mid-sentence).
+MIN_DIAGRAM_CONTENT_WORDS = 750
+DIAGRAM_CONTENT_TARGET_WORDS = 900
+DIAGRAM_CONTENT_MAX_ATTEMPTS = 3
+DIAGRAM_CONTENT_MIN_MAX_TOKENS = 6000
+
+_SPINTAX_GROUP = re.compile(r"\{([^{}]*)\}")
 
 
 class AiContentError(Exception):
@@ -136,6 +154,29 @@ def _call_openai(system_message: str, prompt: str, max_tokens: int) -> str:
     if not content or not content.strip():
         raise AiContentError("OpenAI returned an empty response.")
     return content.strip()
+
+
+def render_spintax_min(text: str) -> str:
+    """Resolves every {a|b|c} spintax group to its shortest alternative
+    (by word count; ties keep the first), innermost groups first. Any
+    real rendering is at least as long as this one, so a word count taken
+    from it is a guaranteed lower bound. Unbalanced braces are left as-is."""
+
+    def shortest(match):
+        options = match.group(1).split("|")
+        return min(options, key=lambda option: len(option.split()))
+
+    previous = None
+    while previous != text:
+        previous = text
+        text = _SPINTAX_GROUP.sub(shortest, text)
+    return text
+
+
+def count_rendered_words(text: str) -> int:
+    """Word count of `text` after spintax is resolved to its shortest
+    rendering (see render_spintax_min)."""
+    return len(render_spintax_min(text).split())
 
 
 def _format_list(items: list, fallback: str) -> str:
@@ -227,6 +268,13 @@ def generate_diagram_content(
     already written by hand for rr_yacss_factory (e.g. its Salvo Metal
     Works job file).
 
+    The result is at least MIN_DIAGRAM_CONTENT_WORDS words once spintax is
+    resolved (count_rendered_words). A draft that falls short is retried,
+    up to DIAGRAM_CONTENT_MAX_ATTEMPTS calls in total, with feedback on how
+    short it was; if every attempt is short the longest draft is returned
+    rather than raised, so the caller can show the real count and let the
+    user regenerate or extend it by hand.
+
     Raises:
         AiContentError: on any failure to reach/parse the API response.
     """
@@ -234,14 +282,19 @@ def generate_diagram_content(
     services_text = _format_list(services, "its core services")
     location = ", ".join(part for part in (city, state) if part.strip())
 
-    prompt = f"""Write body content for a "{target_keyword}" supporting page for
+    base_prompt = f"""Write body content for a "{target_keyword}" supporting page for
 {business_name}, a {business_category} business{f" based in {location}" if location else ""}
 serving {cities_text}.
 
 Services/products to reference naturally: {services_text}.
 
 REQUIREMENTS:
-1. 3-5 paragraphs, professional and specific -- no generic filler.
+1. LENGTH: at least {MIN_DIAGRAM_CONTENT_WORDS} words once the spintax is
+   resolved (each {{a|b|c}} group counts as ONE of its options -- count the
+   shortest). Aim for about {DIAGRAM_CONTENT_TARGET_WORDS} words across 8-12
+   paragraphs, professional and specific -- no generic filler. Cover
+   different angles (services, process, benefits, service area, why choose
+   this business) instead of padding or repeating sentences.
 2. Write using SPINTAX syntax so this single field can auto-spin unique
    variations per page: wrap 2-3 natural word/phrase alternatives in curly
    braces separated by pipes, e.g.
@@ -256,14 +309,35 @@ REQUIREMENTS:
 OUTPUT FORMAT:
 Return ONLY the content. No preamble, no explanations."""
 
-    return _call_openai(
-        system_message=(
-            "You are a professional SEO copywriter who writes spun "
-            "(spintax) web copy for local-business supporting websites."
-        ),
-        prompt=prompt,
-        max_tokens=_get_max_tokens(DEFAULT_MAX_TOKENS),
+    system_message = (
+        "You are a professional SEO copywriter who writes spun "
+        "(spintax) web copy for local-business supporting websites."
     )
+    max_tokens = max(
+        _get_max_tokens(DEFAULT_MAX_TOKENS), DIAGRAM_CONTENT_MIN_MAX_TOKENS
+    )
+
+    best = ""
+    best_words = -1
+    prompt = base_prompt
+    for _ in range(DIAGRAM_CONTENT_MAX_ATTEMPTS):
+        draft = _call_openai(
+            system_message=system_message, prompt=prompt, max_tokens=max_tokens
+        )
+        words = count_rendered_words(draft)
+        if words > best_words:
+            best, best_words = draft, words
+        if words >= MIN_DIAGRAM_CONTENT_WORDS:
+            break
+        prompt = (
+            base_prompt
+            + f"\n\nIMPORTANT: a previous draft was only {words} words when "
+            f"rendered, below the required minimum of "
+            f"{MIN_DIAGRAM_CONTENT_WORDS}. Write a fuller, longer version of "
+            f"about {DIAGRAM_CONTENT_TARGET_WORDS} words -- more paragraphs "
+            "and more detail, not repetition."
+        )
+    return best
 
 
 def generate_faq_answers(

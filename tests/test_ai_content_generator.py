@@ -225,3 +225,100 @@ def test_generate_faq_answers_leaves_a_blank_for_a_question_the_model_skipped(
         questions=["Question one?", "Question two?", "Question three?"],
     )
     assert answers == ["First answer.", "", "Third answer."]
+
+
+def test_render_spintax_min_picks_shortest_option_and_handles_nesting():
+    text = "The {quick brown|fast} fox {a|b {c d|e}} ok"
+    assert acg.render_spintax_min(text) == "The fast fox a ok"
+    assert acg.count_rendered_words(text) == 5
+
+
+def test_count_rendered_words_counts_plain_text_and_leaves_unbalanced_braces():
+    assert acg.count_rendered_words("one two three") == 3
+    assert acg.count_rendered_words("one {two three") == 3
+
+
+def _content_kwargs():
+    return dict(
+        business_name="Acme Plumbing",
+        business_category="Plumbing",
+        target_keyword="emergency plumber dallas",
+        target_cities=["Dallas"],
+        services=["Drain Cleaning"],
+    )
+
+
+def _sequenced_call_openai(monkeypatch, drafts):
+    calls = []
+
+    def fake(system_message, prompt, max_tokens):
+        calls.append({"prompt": prompt, "max_tokens": max_tokens})
+        return drafts[min(len(calls), len(drafts)) - 1]
+
+    monkeypatch.setattr(acg, "_call_openai", fake)
+    return calls
+
+
+def test_generate_diagram_content_stops_when_first_draft_meets_minimum(monkeypatch):
+    _configure(monkeypatch)
+    long_draft = " ".join(["word"] * acg.MIN_DIAGRAM_CONTENT_WORDS)
+    calls = _sequenced_call_openai(monkeypatch, [long_draft])
+
+    assert acg.generate_diagram_content(**_content_kwargs()) == long_draft
+    assert len(calls) == 1
+    assert str(acg.MIN_DIAGRAM_CONTENT_WORDS) in calls[0]["prompt"]
+
+
+def test_generate_diagram_content_retries_short_draft_with_feedback(monkeypatch):
+    _configure(monkeypatch)
+    short_draft = " ".join(["word"] * 100)
+    long_draft = " ".join(["word"] * 800)
+    calls = _sequenced_call_openai(monkeypatch, [short_draft, long_draft])
+
+    assert acg.generate_diagram_content(**_content_kwargs()) == long_draft
+    assert len(calls) == 2
+    assert "only 100 words" in calls[1]["prompt"]
+
+
+def test_generate_diagram_content_returns_longest_after_max_attempts(monkeypatch):
+    _configure(monkeypatch)
+    drafts = [
+        " ".join(["word"] * 100),
+        " ".join(["word"] * 300),
+        " ".join(["word"] * 200),
+    ]
+    calls = _sequenced_call_openai(monkeypatch, drafts)
+
+    assert acg.generate_diagram_content(**_content_kwargs()) == drafts[1]
+    assert len(calls) == acg.DIAGRAM_CONTENT_MAX_ATTEMPTS
+
+
+def test_generate_diagram_content_counts_rendered_not_raw_words(monkeypatch):
+    """A draft padded with spintax alternatives has a high raw word count
+    but a low rendered count, and must be treated as short."""
+    _configure(monkeypatch)
+    padded = " ".join(["{one|two words here|three}"] * 300)
+    assert len(padded.split()) > acg.MIN_DIAGRAM_CONTENT_WORDS
+    assert acg.count_rendered_words(padded) < acg.MIN_DIAGRAM_CONTENT_WORDS
+    calls = _sequenced_call_openai(monkeypatch, [padded])
+
+    acg.generate_diagram_content(**_content_kwargs())
+    assert len(calls) == acg.DIAGRAM_CONTENT_MAX_ATTEMPTS
+
+
+def test_generate_diagram_content_enforces_token_floor(monkeypatch):
+    _configure(monkeypatch, OPENAI_MAX_TOKENS="500")
+    long_draft = " ".join(["word"] * 800)
+    calls = _sequenced_call_openai(monkeypatch, [long_draft])
+
+    acg.generate_diagram_content(**_content_kwargs())
+    assert calls[0]["max_tokens"] == acg.DIAGRAM_CONTENT_MIN_MAX_TOKENS
+
+
+def test_generate_diagram_content_respects_higher_env_token_cap(monkeypatch):
+    _configure(monkeypatch, OPENAI_MAX_TOKENS="9000")
+    long_draft = " ".join(["word"] * 800)
+    calls = _sequenced_call_openai(monkeypatch, [long_draft])
+
+    acg.generate_diagram_content(**_content_kwargs())
+    assert calls[0]["max_tokens"] == 9000

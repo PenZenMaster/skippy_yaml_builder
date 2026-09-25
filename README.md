@@ -197,6 +197,16 @@ Controls how a Diagram build's page content is generated:
   -- an empty value produced zero real paragraphs even in AI mode when
   this was live-tested.
 
+**Generate with AI for `YACSS Diagram Content`** writes at least **750
+words of rendered content** -- spintax `{a|b|c}` groups are counted as
+their *shortest* option, so every possible spin clears 750. A short draft
+is retried automatically (up to 3 calls in total) and the longest draft is
+kept. The preview dialog shows a live "N/750 rendered words" counter (red
+below the minimum, green at or above); if all attempts fall short you can
+Regenerate or add text by hand before accepting. This field uses at least
+6,000 output tokens regardless of a lower `OPENAI_MAX_TOKENS` in
+`cloud-stack-generator`'s `.env`.
+
 ### FAQ Questions & Answers
 - Type a question, press **Enter** to jump to the Answer cell, type the
   answer, press **Enter** again to open a fresh row -- built specifically

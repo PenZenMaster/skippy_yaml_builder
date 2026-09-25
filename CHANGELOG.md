@@ -3,6 +3,20 @@
 All notable changes to this project are documented in this file. Format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+
+- **Diagram Content "Generate with AI" now produces at least 750 words of
+  rendered content** (was 3-5 paragraphs with no length check). Spintax
+  groups are counted as their shortest option, so every possible spin
+  meets the minimum. A draft below 750 is retried with feedback (up to 3
+  calls in total; the longest draft is kept), and the preview dialog shows
+  a live rendered-word counter. Migration note: generation now takes longer
+  and can cost up to 3 API calls when the model undershoots. The output
+  token cap for this field is raised to at least 6,000, overriding a lower
+  `OPENAI_MAX_TOKENS` in `cloud-stack-generator`'s `.env`.
+
 ## [0.10.0] - 2026-09-23
 
 ### Added
