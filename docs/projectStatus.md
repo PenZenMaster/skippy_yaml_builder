@@ -1,11 +1,18 @@
 ## Resume From
 
-Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-09-25_0900.md`
-Last session: 2026-09-25
+Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-09-25_1404.md`
+Last session: 2026-09-25 (afternoon)
 Branch: main | Version: 0.10.0
 
-**2026-09-25**: no code changes. The v0.10.0 per-page image list was used for
-real in the factory (SARC job D); see the checkpoint.
+**2026-09-25 (afternoon)**: QA gate is now `ruff check --fix . && black . &&
+mypy . && pytest -q` (config in `pyproject.toml`, tools in
+`requirements-dev.txt`). Fixed 6 mypy errors, applied a mechanical
+black/ruff pass (`9abb77c`, listed in `.git-blame-ignore-revs`). All green,
+217/217 tests. No behavior change. Detail in the checkpoint.
+
+**2026-09-25 (morning)**: no code changes. The v0.10.0 per-page image list
+was used for real in the factory (SARC job D); see
+`CheckPoint-2026-09-25_0900.md`.
 
 **2026-09-23**: v0.10.0 -- **"Content Image URLs (one per line)"** field
 (exports `content_image_urls`, warns on the `Content Image URL` combination
