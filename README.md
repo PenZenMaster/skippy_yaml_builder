@@ -217,15 +217,33 @@ Regenerate or add text by hand before accepting. This field uses at least
   automatically). Imported rows are **appended** to whatever's already
   in the table, not a destructive replace.
 - **Generate FAQs from People Also Ask**: pick a count (1-10 per click)
-  and click the button to pull real Google "People Also Ask" questions
-  for the current seed keyword (the same `YACSS Bucket Keyword`/`YACSS
-  Topic Keyword` seed the Keyword Research tab uses, shown in the same
-  "Seed keyword" label) via DataForSEO's Google SERP API, then write a
-  real answer for each via AI (uses the same `OPENAI_API_KEY` as the
-  Diagram "Generate with AI" buttons and Content Silo's Generate
-  Content). Generated rows are **appended**, same as CSV import. Google
-  can genuinely show no PAA box for an uncommon seed -- that's reported
-  as an explicit "No results" message, not a silent no-op.
+  and click the button. It searches Google "People Also Ask" (DataForSEO's
+  Google SERP API) for the current seed keyword -- the same `YACSS Bucket
+  Keyword`/`YACSS Topic Keyword` the Keyword Research tab uses, shown in
+  the "Seed keyword" label -- and writes an answer for each question via
+  AI (same `OPENAI_API_KEY` as the Diagram "Generate with AI" buttons).
+  Generated rows are **appended**, same as CSV import.
+  - **Seed cleaning:** a bucket-style keyword is turned into a real search
+    phrase first (`emergency-plumber-dallas-01` -> `emergency plumber
+    dallas`); hyphenated bucket names used to return no PAA questions at
+    all.
+  - **Reaching the count:** the PAA box is expanded and, if Google still
+    shows fewer questions than requested, the search is repeated with
+    each target city added (at most 4 searches per click). Anything still
+    missing is filled with **AI-suggested questions**, which are named in
+    the summary dialog (by table row) and carry a tooltip on the question
+    cell -- review them, they are not real Google questions. The summary
+    always states how many of each kind were added.
+  - **Answers are grounded:** the model is given only the client facts
+    already on the form (name, category, cities, services, legal name,
+    address, phone, email, website) and told not to state prices, hours,
+    years in business, licences, guarantees, statistics or anything else
+    it wasn't given -- where a question needs such a fact it answers in
+    general terms and points to contacting the business. Answers are still
+    AI output: skim them before use.
+  - **Blank answers:** answers are requested as JSON and any left blank are
+    re-requested (up to 3 calls in total); a question that is still
+    unanswered is added with a blank answer and counted in the summary.
 
 ### Exporting a real rr_yacss_factory job file
 **Export Job JSON** writes a real `rr_yacss_factory` job file -- the same

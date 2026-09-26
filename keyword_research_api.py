@@ -31,7 +31,7 @@ Created Date:
 2026-09-05
 
 Last Modified Date:
-2026-09-13
+2026-09-26
 
 Comments:
 - v1.00 Initial implementation, ported from
@@ -56,6 +56,9 @@ Comments:
   people_also_ask_click_depth expansion of DataForSEO's own snippet
   answers) -- ai_content_generator.generate_faq_answers writes the actual
   answers, tailored to the client, rather than trusting Google's snippet.
+- v1.03 fetch_people_also_ask takes an optional click_depth
+  (people_also_ask_click_depth) so faq_generation can pull more than the
+  handful of questions Google shows unexpanded.
 """
 
 from pathlib import Path
@@ -75,6 +78,8 @@ MAX_CLUSTERS = 12
 # generation call per question, see ai_content_generator.
 # generate_faq_answers) bounded and predictable.
 MAX_PAA_QUESTIONS = 10
+# DataForSEO's people_also_ask_click_depth accepts 1-4.
+MAX_PAA_CLICK_DEPTH = 4
 
 # Sibling project layout assumed, same as yacss_api.py's RR_YACSS_FACTORY_ENV.
 RR_YACSS_FACTORY_ENV = (
@@ -525,17 +530,21 @@ def fetch_search_intents(keywords: list[str]) -> dict[str, str]:
 
 
 def fetch_people_also_ask(
-    seed: str, max_questions: int = MAX_PAA_QUESTIONS
+    seed: str, max_questions: int = MAX_PAA_QUESTIONS, click_depth: int = 0
 ) -> list[str]:
     """Returns up to `max_questions` real Google "People Also Ask"
     questions for `seed`, via DataForSEO's SERP API (serp/google/organic/
     live/advanced) -- a genuinely different DataForSEO product from every
     other function in this file (DataForSEO Labs), reached through the
-    same host/auth/_post_task plumbing. No people_also_ask_click_depth is
-    requested: only the question text is needed here, not DataForSEO's
-    own scraped answer snippet (see ai_content_generator.
-    generate_faq_answers for where the real answer comes from), so the
-    cheaper default-depth call is enough.
+    same host/auth/_post_task plumbing. Only the question text is used,
+    not DataForSEO's own scraped answer snippet (see ai_content_generator.
+    generate_faq_answers for where the real answer comes from).
+
+    `click_depth` (0 = off, otherwise clamped to 1-4) sets DataForSEO's
+    people_also_ask_click_depth: how many times the PAA box is expanded so
+    Google reveals further questions. Without it Google typically shows only
+    a handful, which is why a request for 10 used to come back short. Each
+    click is billed by DataForSEO, so it stays off by default.
 
     Order is whatever Google/DataForSEO returned (already relevance-
     ranked); duplicates are dropped. Returns an empty list -- not an
@@ -543,15 +552,15 @@ def fetch_people_also_ask(
     "real data gap, not a bug" reasoning as fetch_related_keywords.
     """
     max_questions = max(1, min(max_questions, MAX_PAA_QUESTIONS))
-    results = _post_task(
-        "/serp/google/organic/live/advanced",
-        {
-            "keyword": seed,
-            "language_code": "en",
-            "location_code": LOCATION_CODE,
-            "device": "desktop",
-        },
-    )
+    body: dict = {
+        "keyword": seed,
+        "language_code": "en",
+        "location_code": LOCATION_CODE,
+        "device": "desktop",
+    }
+    if click_depth > 0:
+        body["people_also_ask_click_depth"] = min(click_depth, MAX_PAA_CLICK_DEPTH)
+    results = _post_task("/serp/google/organic/live/advanced", body)
     items = (results[0].get("items") or []) if results else []
     questions: list[str] = []
     for item in items:

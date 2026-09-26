@@ -47,18 +47,17 @@ from ai_content_generator import (
     count_rendered_words,
     generate_diagram_content,
     generate_diagram_page_titles,
-    generate_faq_answers,
 )
 from ai_content_generator import (
     is_available as ai_content_is_available,
 )
 from city_embed_dialog import CityEmbedDialog
+from faq_generation import SOURCE_AI, generate_faqs
 from image_size_check import check_image_sizes
 from keyword_research_api import (
     MAX_PAA_QUESTIONS,
     KeywordResearchError,
     fetch_clusters,
-    fetch_people_also_ask,
     local_location_tokens,
 )
 from silo_content_generator import (
@@ -3093,10 +3092,15 @@ class YAMLForm(QMainWindow):
         finally:
             QApplication.restoreOverrideCursor()
 
-    def _add_faq_row(self, question: str = "", answer: str = ""):
+    def _add_faq_row(
+        self, question: str = "", answer: str = "", question_tooltip: str = ""
+    ):
         row = self.faq_table.rowCount()
         self.faq_table.insertRow(row)
-        self.faq_table.setItem(row, 0, QTableWidgetItem(question))
+        question_item = QTableWidgetItem(question)
+        if question_tooltip:
+            question_item.setToolTip(question_tooltip)
+        self.faq_table.setItem(row, 0, question_item)
         self.faq_table.setItem(row, 1, QTableWidgetItem(answer))
 
     def _remove_selected_faq_row(self):
@@ -3168,16 +3172,16 @@ class YAMLForm(QMainWindow):
         QMessageBox.information(self, "Imported", f"Imported {len(faqs)} FAQ(s).")
 
     def _generate_faq_from_paa(self):
-        """ "Generate FAQs from People Also Ask" button handler: fetches up
-        to self.faq_paa_count_spinbox.value() real Google PAA questions
-        for the current seed keyword (keyword_research_api.
-        fetch_people_also_ask), writes a real answer for each via
-        ai_content_generator.generate_faq_answers, and appends them as new
-        rows onto self.faq_table -- existing rows are left alone, same
-        "append, don't replace" reasoning as _add_faq_row's other callers
-        (Import FAQs from CSV). A question the model didn't answer is
-        still added (with a blank answer) rather than silently dropped,
-        so the operator sees exactly what needs to be filled in by hand."""
+        """ "Generate FAQs from People Also Ask" button handler: gathers the
+        form's client data, runs faq_generation.generate_faqs (real Google
+        PAA questions, topped up with AI-suggested ones if Google shows fewer
+        than the spinbox value, each answered from the client's own facts),
+        and appends the results onto self.faq_table -- existing rows are left
+        alone, same "append, don't replace" reasoning as Import FAQs from
+        CSV. AI-suggested questions carry a tooltip and are listed in the
+        summary so they can't be mistaken for real Google questions, and a
+        question the model didn't answer is still added (blank answer)
+        rather than silently dropped."""
         seed = self._current_seed_keyword()
         if not seed:
             QMessageBox.warning(
@@ -3198,9 +3202,6 @@ class YAMLForm(QMainWindow):
             )
             return
 
-        count = self.faq_paa_count_spinbox.value()
-        business_name = self.inputs["* Client Name"].text().strip()
-        business_category = self.inputs["* Business Category"].text().strip()
         target_cities = [
             line
             for line in self.inputs["* Target Cities (one per line)"]
@@ -3215,33 +3216,35 @@ class YAMLForm(QMainWindow):
             .splitlines()
             if line.strip()
         ]
+        # Only facts already entered on the form; the answer prompt forbids
+        # stating anything about the client beyond these.
+        company_facts = {
+            "Legal name": self.inputs["Legal / Company Name"].text(),
+            "Street address": self.inputs["Street Address"].text(),
+            "City": self.inputs["City"].text(),
+            "State": self.inputs["State"].text(),
+            "ZIP": self.inputs["ZIP"].text(),
+            "Phone": self.inputs["* Phone"].text(),
+            "Email": self.inputs["Email"].text()
+            or self.inputs["Contact Email Address"].text(),
+            "Website": self.inputs["* Website"].text(),
+        }
 
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         self.setEnabled(False)
         try:
-            questions = fetch_people_also_ask(seed, count)
+            result = generate_faqs(
+                seed_keyword=seed,
+                business_name=self.inputs["* Client Name"].text().strip(),
+                business_category=self.inputs["* Business Category"].text().strip(),
+                target_cities=target_cities,
+                services=services,
+                count=self.faq_paa_count_spinbox.value(),
+                company_facts=company_facts,
+            )
         except KeywordResearchError as exc:
             QMessageBox.critical(self, "People Also Ask lookup failed", str(exc))
             return
-        finally:
-            QApplication.restoreOverrideCursor()
-            self.setEnabled(True)
-
-        if not questions:
-            QMessageBox.information(
-                self,
-                "No results",
-                f'Google shows no "People Also Ask" questions for "{seed}". '
-                "Try a more common phrasing or a broader seed.",
-            )
-            return
-
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        self.setEnabled(False)
-        try:
-            answers = generate_faq_answers(
-                business_name, business_category, target_cities, services, questions
-            )
         except AiContentError as exc:
             QMessageBox.critical(self, "FAQ answer generation failed", str(exc))
             return
@@ -3249,13 +3252,54 @@ class YAMLForm(QMainWindow):
             QApplication.restoreOverrideCursor()
             self.setEnabled(True)
 
-        for question, answer in zip(questions, answers):
-            self._add_faq_row(question, answer)
-        QMessageBox.information(
-            self,
-            "FAQs Generated",
-            f"Added {len(questions)} FAQ(s) from People Also Ask.",
-        )
+        if not result.items:
+            QMessageBox.information(
+                self,
+                "No FAQs generated",
+                f'No "People Also Ask" questions were found for "{seed}" and '
+                "no AI-suggested questions could be produced. Try a more "
+                "common phrasing or check the Business Category and Services.",
+            )
+            return
+
+        ai_rows = []
+        for item in result.items:
+            is_ai = item.source == SOURCE_AI
+            self._add_faq_row(
+                item.question,
+                item.answer,
+                question_tooltip=(
+                    "AI-suggested question (not from Google People Also Ask)"
+                    if is_ai
+                    else ""
+                ),
+            )
+            if is_ai:
+                ai_rows.append(self.faq_table.rowCount())
+
+        lines = [
+            f"Added {len(result.items)} of {result.requested} requested FAQ(s): "
+            f"{result.google_count} from Google People Also Ask, "
+            f"{result.ai_count} AI-suggested."
+        ]
+        if result.searched_phrases:
+            lines.append(
+                "Google searched: "
+                + ", ".join(f'"{phrase}"' for phrase in result.searched_phrases)
+                + "."
+            )
+        if ai_rows:
+            lines.append(
+                "AI-suggested question row(s): "
+                + ", ".join(str(row) for row in ai_rows)
+                + " (hover the question to see the note). Review these before use."
+            )
+        if result.blank_answer_count:
+            lines.append(
+                f"{result.blank_answer_count} answer(s) came back blank -- "
+                "fill those in by hand."
+            )
+        QMessageBox.information(self, "FAQs Generated", "\n\n".join(lines))
 
     def open_city_dialog(self):
         dialog = CityEmbedDialog(self)

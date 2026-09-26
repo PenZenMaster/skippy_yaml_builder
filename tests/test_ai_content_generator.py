@@ -3,6 +3,8 @@
 monkeypatched). Covers is_available(), the exact-title-count guard, response
 parsing, and error wrapping."""
 
+import json
+
 import ai_content_generator as acg
 
 
@@ -31,6 +33,9 @@ class _FakeCompletions:
         self.calls.append(kwargs)
         if self.error:
             raise self.error
+        if isinstance(self.content, list):
+            index = min(len(self.calls), len(self.content)) - 1
+            return _FakeResponse(self.content[index])
         return _FakeResponse(self.content)
 
 
@@ -169,62 +174,214 @@ def test_call_openai_raises_on_empty_response(monkeypatch):
         assert "empty" in str(exc).lower()
 
 
-def test_generate_faq_answers_returns_empty_list_for_no_questions(monkeypatch):
-    _configure(monkeypatch)
-    assert (
-        acg.generate_faq_answers(
-            "Acme Plumbing", "Plumbing", ["Dallas"], ["Drain Cleaning"], []
-        )
-        == []
-    )
+def _answers_json(*pairs):
+    return json.dumps({"answers": [{"number": n, "answer": a} for n, a in pairs]})
 
 
-def test_generate_faq_answers_parses_numbered_answers_in_order(monkeypatch):
-    _configure(monkeypatch)
-    fake_client = _install_fake_client(
-        monkeypatch,
-        content=(
-            "1. Emergency repairs typically cost $150-$400 depending on the issue.\n"
-            "2. Most repairs are completed within an hour by an Acme Plumbing technician.\n"
-        ),
-    )
-    answers = acg.generate_faq_answers(
+def _faq_kwargs(**overrides):
+    kwargs = dict(
         business_name="Acme Plumbing",
         business_category="Plumbing",
         target_cities=["Dallas", "Fort Worth"],
         services=["Drain Cleaning"],
-        questions=[
-            "How much does emergency plumbing cost?",
-            "How long does a repair take?",
-        ],
+        questions=["Question one?", "Question two?", "Question three?"],
+    )
+    kwargs.update(overrides)
+    return kwargs
+
+
+def test_generate_faq_answers_returns_empty_list_for_no_questions(monkeypatch):
+    _configure(monkeypatch)
+    assert acg.generate_faq_answers(**_faq_kwargs(questions=[])) == []
+
+
+def test_generate_faq_answers_parses_json_answers_in_order(monkeypatch):
+    _configure(monkeypatch)
+    fake_client = _install_fake_client(
+        monkeypatch,
+        content=_answers_json(
+            (1, "Costs depend on the issue, so contact Acme Plumbing for a quote."),
+            (2, "The time depends on the job."),
+        ),
+    )
+    answers = acg.generate_faq_answers(
+        **_faq_kwargs(
+            questions=[
+                "How much does emergency plumbing cost?",
+                "How long does a repair take?",
+            ]
+        )
     )
     assert answers == [
-        "Emergency repairs typically cost $150-$400 depending on the issue.",
-        "Most repairs are completed within an hour by an Acme Plumbing technician.",
+        "Costs depend on the issue, so contact Acme Plumbing for a quote.",
+        "The time depends on the job.",
     ]
-    # Both real questions are passed through into the prompt, in order.
-    prompt = fake_client.completions.calls[0]["messages"][1]["content"]
+    call = fake_client.completions.calls[0]
+    prompt = call["messages"][1]["content"]
     assert "1. How much does emergency plumbing cost?" in prompt
     assert "2. How long does a repair take?" in prompt
+    # JSON output is requested explicitly, not parsed out of free text.
+    assert call["response_format"] == {"type": "json_object"}
 
 
-def test_generate_faq_answers_leaves_a_blank_for_a_question_the_model_skipped(
+def test_generate_faq_answers_prompt_is_grounded_in_client_facts(monkeypatch):
+    _configure(monkeypatch)
+    fake_client = _install_fake_client(monkeypatch, content=_answers_json((1, "A.")))
+    acg.generate_faq_answers(
+        **_faq_kwargs(
+            questions=["Are you licensed?"],
+            company_facts={
+                "Phone": "(214) 555-0100",
+                "Website": "https://acmeplumbing.example",
+                "ZIP": "",
+                "Fax": "(   )    -",
+            },
+        )
+    )
+    prompt = fake_client.completions.calls[0]["messages"][1]["content"]
+    assert "GROUNDING RULES" in prompt
+    assert "- Business name: Acme Plumbing" in prompt
+    assert "- Service area: Dallas, Fort Worth" in prompt
+    assert "- Services: Drain Cleaning" in prompt
+    assert "- Phone: (214) 555-0100" in prompt
+    assert "- Website: https://acmeplumbing.example" in prompt
+    # Blank values and an unfilled phone mask are not presented as facts.
+    assert "ZIP" not in prompt
+    assert "Fax" not in prompt
+    flat_prompt = " ".join(prompt.split())
+    for forbidden in ("prices", "years in business", "licences", "guarantees"):
+        assert forbidden in flat_prompt
+
+
+def test_generate_faq_answers_retries_only_the_blank_questions(monkeypatch):
+    _configure(monkeypatch)
+    fake_client = _install_fake_client(
+        monkeypatch,
+        content=[
+            # First call answers 1 and 3 only.
+            _answers_json((1, "First answer."), (3, "Third answer.")),
+            _answers_json((2, "Second answer.")),
+        ],
+    )
+    answers = acg.generate_faq_answers(**_faq_kwargs())
+    assert answers == ["First answer.", "Second answer.", "Third answer."]
+    assert len(fake_client.completions.calls) == 2
+    retry_prompt = fake_client.completions.calls[1]["messages"][1]["content"]
+    # The retry keeps the ORIGINAL numbering and asks only for the blank one.
+    assert "2. Question two?" in retry_prompt
+    assert "1. Question one?" not in retry_prompt
+    assert "3. Question three?" not in retry_prompt
+
+
+def test_generate_faq_answers_gives_up_after_max_attempts_leaving_blanks(
+    monkeypatch,
+):
+    _configure(monkeypatch)
+    fake_client = _install_fake_client(
+        monkeypatch, content=_answers_json((1, "First answer."))
+    )
+    answers = acg.generate_faq_answers(**_faq_kwargs())
+    assert answers == ["First answer.", "", ""]
+    assert len(fake_client.completions.calls) == acg.FAQ_ANSWER_MAX_ATTEMPTS
+
+
+def test_generate_faq_answers_tolerates_fenced_json_and_string_numbers(
     monkeypatch,
 ):
     _configure(monkeypatch)
     _install_fake_client(
         monkeypatch,
-        # Only answers question 1 and 3 -- question 2's answer is missing.
-        content="1. First answer.\n3. Third answer.\n",
+        content='```json\n{"answers": [{"number": "1", "answer": "One."},'
+        ' {"number": 99, "answer": "Out of range."},'
+        ' {"number": 2, "answer": "   "}]}\n```',
     )
-    answers = acg.generate_faq_answers(
+    answers = acg.generate_faq_answers(**_faq_kwargs(questions=["Q1?", "Q2?"]))
+    # Fence stripped, "1" accepted, out-of-range and blank answers ignored
+    # (question 2 stays blank through every retry).
+    assert answers == ["One.", ""]
+
+
+def test_generate_faq_answers_keeps_collected_answers_when_a_retry_fails(
+    monkeypatch,
+):
+    _configure(monkeypatch)
+    calls = {"n": 0}
+
+    def fake_call(system_message, prompt, max_tokens, json_mode=False):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return _answers_json((1, "First answer."))
+        raise acg.AiContentError("rate limited")
+
+    monkeypatch.setattr(acg, "_call_openai", fake_call)
+    answers = acg.generate_faq_answers(**_faq_kwargs())
+    assert answers == ["First answer.", "", ""]
+
+
+def test_generate_faq_answers_raises_when_the_first_call_fails(monkeypatch):
+    _configure(monkeypatch)
+    _install_fake_client(monkeypatch, error=RuntimeError("boom"))
+    try:
+        acg.generate_faq_answers(**_faq_kwargs())
+        assert False, "expected AiContentError"
+    except acg.AiContentError as exc:
+        assert "boom" in str(exc)
+
+
+def test_generate_faq_questions_returns_fresh_deduplicated_questions(monkeypatch):
+    _configure(monkeypatch)
+    fake_client = _install_fake_client(
+        monkeypatch,
+        content=json.dumps(
+            {
+                "questions": [
+                    "How often should drains be cleaned?",
+                    "how much does drain cleaning cost",  # dup of existing, no ?
+                    "Can a clogged drain damage pipes?",
+                    "Can a clogged drain damage pipes?",  # dup within reply
+                    "",
+                    42,
+                    "What causes slow drains?",
+                ]
+            }
+        ),
+    )
+    questions = acg.generate_faq_questions(
         business_name="Acme Plumbing",
         business_category="Plumbing",
         target_cities=["Dallas"],
         services=["Drain Cleaning"],
-        questions=["Question one?", "Question two?", "Question three?"],
+        existing_questions=["How much does drain cleaning cost?"],
+        count=2,
     )
-    assert answers == ["First answer.", "", "Third answer."]
+    assert questions == [
+        "How often should drains be cleaned?",
+        "Can a clogged drain damage pipes?",
+    ]
+    call = fake_client.completions.calls[0]
+    prompt = call["messages"][1]["content"]
+    assert "- How much does drain cleaning cost?" in prompt
+    assert "do NOT write answers" in prompt
+    assert call["response_format"] == {"type": "json_object"}
+
+
+def test_generate_faq_questions_returns_empty_for_non_positive_count(monkeypatch):
+    _configure(monkeypatch)
+    fake_client = _install_fake_client(monkeypatch, content="{}")
+    assert (
+        acg.generate_faq_questions("A", "B", [], [], existing_questions=[], count=0)
+        == []
+    )
+    assert fake_client.completions.calls == []
+
+
+def test_generate_faq_questions_returns_empty_for_unusable_reply(monkeypatch):
+    _configure(monkeypatch)
+    _install_fake_client(monkeypatch, content="not json at all")
+    assert (
+        acg.generate_faq_questions("A", "B", [], [], existing_questions=[], count=3)
+        == []
+    )
 
 
 def test_render_spintax_min_picks_shortest_option_and_handles_nesting():

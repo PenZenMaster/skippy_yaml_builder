@@ -5,6 +5,34 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **FAQ generation refactored** (FAQ tab, "Generate FAQs from People Also
+  Ask"). Three reported problems fixed:
+  - *Invented client information:* answers are now grounded. The prompt lists
+    the only client facts the model may state (those already on the form) and
+    forbids inventing prices, hours, years in business, licences,
+    guarantees, statistics and similar; unknowns are answered in general
+    terms.
+  - *Fewer FAQs than the picker asked for:* the PAA box is expanded
+    (`people_also_ask_click_depth`), extra searches add each target city
+    (max 4 per click), and any remaining shortfall is filled with
+    AI-suggested questions. Those rows are labelled (summary dialog lists
+    their row numbers; tooltip on the question cell) so they are not mistaken
+    for real Google questions. The summary states requested vs added, and
+    Google vs AI counts.
+  - *Zero or blank output:* the seed is now cleaned before searching
+    (`emergency-plumber-dallas-01` -> `emergency plumber dallas`) instead of
+    sending the hyphenated bucket name to Google, and answers are requested as
+    JSON with only the blank ones re-asked (up to 3 calls), replacing a strict
+    numbered-line parse that blanked anything formatted differently.
+  Logic moved out of the button handler into the new `faq_generation.py`.
+  Migration note: one click now costs more (up to 4 SERP searches with click
+  depth 2, plus up to 3 OpenAI answer calls and 1 question top-up call), and
+  a "No results" dialog no longer appears when Google has no PAA box -- the
+  rows are AI-suggested instead. The click-depth and search caps are
+  `PAA_CLICK_DEPTH` / `MAX_PAA_SEARCHES` in `faq_generation.py`.
+
 ## [1.0.0] - 2026-09-26
 
 First stable release. No breaking change to the YAML or job-file shape;

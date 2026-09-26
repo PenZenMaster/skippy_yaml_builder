@@ -485,3 +485,40 @@ def test_fetch_people_also_ask_clamps_a_max_above_the_hard_ceiling():
             questions = fetch_people_also_ask("garage door repair", max_questions=999)
 
     assert len(questions) == 10
+
+
+def _posted_body(mock_post):
+    return mock_post.call_args.kwargs["json"][0]
+
+
+def test_fetch_people_also_ask_omits_click_depth_by_default():
+    response = _fake_response(_serp_organic_envelope([]))
+    with patch("keyword_research_api._load_config", return_value=("login", "password")):
+        with patch(
+            "keyword_research_api.requests.post", return_value=response
+        ) as mock_post:
+            fetch_people_also_ask("garage door repair")
+
+    assert "people_also_ask_click_depth" not in _posted_body(mock_post)
+
+
+def test_fetch_people_also_ask_sends_click_depth_when_requested():
+    response = _fake_response(_serp_organic_envelope([]))
+    with patch("keyword_research_api._load_config", return_value=("login", "password")):
+        with patch(
+            "keyword_research_api.requests.post", return_value=response
+        ) as mock_post:
+            fetch_people_also_ask("garage door repair", click_depth=2)
+
+    assert _posted_body(mock_post)["people_also_ask_click_depth"] == 2
+
+
+def test_fetch_people_also_ask_clamps_click_depth_to_dataforseo_maximum():
+    response = _fake_response(_serp_organic_envelope([]))
+    with patch("keyword_research_api._load_config", return_value=("login", "password")):
+        with patch(
+            "keyword_research_api.requests.post", return_value=response
+        ) as mock_post:
+            fetch_people_also_ask("garage door repair", click_depth=99)
+
+    assert _posted_body(mock_post)["people_also_ask_click_depth"] == 4

@@ -21,7 +21,7 @@ Created Date:
 2026-08-27
 
 Last Modified Date:
-2026-09-25
+2026-09-26
 
 Comments:
 - v1.00 Initial implementation.
@@ -35,8 +35,16 @@ Comments:
   resolved to each group's shortest option, so every possible rendering
   qualifies), retrying up to three times and returning the longest draft.
   Added count_rendered_words/render_spintax_min.
+- v1.03 FAQ generation refactor: generate_faq_answers now asks for JSON
+  (not numbered text lines), retries only the questions that came back
+  blank, and is grounded -- the prompt lists the only client facts the
+  model may state and forbids inventing prices, hours, years in
+  business, licences, guarantees and statistics. Added
+  generate_faq_questions (AI-suggested questions to top up a short
+  Google People Also Ask result) and _call_openai's json_mode.
 """
 
+import json
 import re
 from pathlib import Path
 
@@ -71,6 +79,12 @@ MIN_DIAGRAM_CONTENT_WORDS = 750
 DIAGRAM_CONTENT_TARGET_WORDS = 900
 DIAGRAM_CONTENT_MAX_ATTEMPTS = 3
 DIAGRAM_CONTENT_MIN_MAX_TOKENS = 6000
+
+# FAQ answer generation: one initial call plus up to two retries, each retry
+# asking only for the questions still blank.
+FAQ_ANSWER_MAX_ATTEMPTS = 3
+FAQ_ANSWER_TOKENS_PER_QUESTION = 220
+FAQ_QUESTION_TOKENS_PER_QUESTION = 60
 
 _SPINTAX_GROUP = re.compile(r"\{([^{}]*)\}")
 
@@ -122,7 +136,9 @@ def is_available() -> bool:
     return OPENAI_AVAILABLE and bool(_get_api_key())
 
 
-def _call_openai(system_message: str, prompt: str, max_tokens: int) -> str:
+def _call_openai(
+    system_message: str, prompt: str, max_tokens: int, json_mode: bool = False
+) -> str:
     if not OPENAI_AVAILABLE:
         raise AiContentError(
             "The 'openai' package is not installed in this project's venv "
@@ -137,16 +153,20 @@ def _call_openai(system_message: str, prompt: str, max_tokens: int) -> str:
         )
 
     client = OpenAI(api_key=api_key)
+    request: dict = {
+        "model": _get_model(),
+        "messages": [
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": prompt},
+        ],
+        "max_tokens": max_tokens,
+        "temperature": _get_temperature(),
+    }
+    if json_mode:
+        # The prompt itself must also say "JSON" for this mode to be accepted.
+        request["response_format"] = {"type": "json_object"}
     try:
-        response = client.chat.completions.create(
-            model=_get_model(),
-            messages=[
-                {"role": "system", "content": system_message},
-                {"role": "user", "content": prompt},
-            ],
-            max_tokens=max_tokens,
-            temperature=_get_temperature(),
-        )
+        response = client.chat.completions.create(**request)
     except Exception as exc:  # noqa: BLE001 - surfaced as one clear error type
         raise AiContentError(f"OpenAI API call failed: {exc}") from exc
 
@@ -340,72 +360,242 @@ Return ONLY the content. No preamble, no explanations."""
     return best
 
 
+def _has_content(value: object) -> bool:
+    """True for a string with at least one letter or digit -- an unfilled
+    phone input mask ("(   )    -") is non-empty text but carries no data."""
+    return isinstance(value, str) and any(ch.isalnum() for ch in value)
+
+
+def _format_client_facts(
+    business_name: str,
+    business_category: str,
+    target_cities: list,
+    services: list,
+    company_facts: dict | None,
+) -> str:
+    """The complete list of facts the model is allowed to state about the
+    client, as bullet lines. Nothing outside this list may be asserted (see
+    _FAQ_GROUNDING_RULES)."""
+    lines = [
+        f"- Business name: {business_name}",
+        f"- Business category: {business_category}",
+        f"- Service area: {_format_list(target_cities, 'not specified')}",
+        f"- Services: {_format_list(services, 'not specified')}",
+    ]
+    for label, value in (company_facts or {}).items():
+        if _has_content(value):
+            lines.append(f"- {label}: {value.strip()}")
+    return "\n".join(lines)
+
+
+_FAQ_GROUNDING_RULES = """GROUNDING RULES (these override everything else):
+- The ONLY facts you may state about the business are those under CLIENT
+  FACTS. Anything else about this specific business is unknown to you.
+- Never state or imply: prices or price ranges, hours of operation, years in
+  business, licences, insurance, certifications, guarantees or warranties,
+  response times, statistics, awards, reviews, staff names or counts, brands
+  carried, or that the business offers a service that is not in CLIENT FACTS.
+- General industry knowledge that is true of the trade everywhere (how a
+  process works, what factors affect a job) is allowed when written as
+  general information, not as a claim about this business.
+- When the question needs a fact you do not have, answer helpfully in
+  general terms and point the reader to contacting the business (for
+  example: "The cost depends on the scope of the job, so contact
+  {business_name} for a quote."). Do not guess a number."""
+
+
+def _parse_json_object(content: str) -> dict:
+    """Parses a model reply as a JSON object, tolerating stray text or a
+    code fence around it. Returns {} when nothing parseable is found."""
+    for candidate in (content, *re.findall(r"\{.*\}", content, flags=re.DOTALL)):
+        try:
+            parsed = json.loads(candidate)
+        except (ValueError, TypeError):
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return {}
+
+
+def _answers_from_reply(content: str, total: int) -> dict:
+    """{question_number: answer_text} from a {"answers": [{"number": n,
+    "answer": "..."}]} reply. Numbers outside 1..total and blank or non-string
+    answers are ignored."""
+    entries = _parse_json_object(content).get("answers")
+    found: dict = {}
+    if not isinstance(entries, list):
+        return found
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        number, answer = entry.get("number"), entry.get("answer")
+        if isinstance(number, str) and number.strip().isdigit():
+            number = int(number.strip())
+        if (
+            isinstance(number, int)
+            and 1 <= number <= total
+            and isinstance(answer, str)
+            and answer.strip()
+        ):
+            found[number] = answer.strip()
+    return found
+
+
 def generate_faq_answers(
     business_name: str,
     business_category: str,
     target_cities: list,
     services: list,
     questions: list,
+    company_facts: dict | None = None,
 ) -> list:
-    """Generates one answer per question in `questions`, in the same
-    order, for the FAQ tab's "Generate FAQs from People Also Ask" button
-    -- the questions themselves come from real Google search data (see
-    keyword_research_api.fetch_people_also_ask), this only writes the
-    answers.
+    """Generates one answer per question in `questions`, in the same order,
+    for the FAQ tab's "Generate FAQs" button.
 
-    Returns exactly len(questions) strings; any question the model's
-    response didn't number correctly comes back as "" rather than
-    shifting every later answer out of alignment -- callers should treat
-    a blank entry as a generation shortfall for that one question, not
-    fail the whole batch.
+    The reply is requested as JSON keyed by question number, and only the
+    questions still blank are re-asked (up to FAQ_ANSWER_MAX_ATTEMPTS calls in
+    total), so one badly formatted or skipped answer no longer blanks the
+    batch. Answers are grounded: the prompt lists the only facts about the
+    client the model may state (`company_facts` extends the basics with e.g.
+    address/phone/website from the form) and forbids inventing anything else.
+
+    Returns exactly len(questions) strings; a question still unanswered after
+    every attempt comes back as "" -- callers should treat that as a
+    generation shortfall for that one question, not fail the whole batch.
 
     Raises:
-        AiContentError: on any failure to reach/parse the API response.
+        AiContentError: if the FIRST API call fails or returns nothing usable
+        at the transport level. A failure on a retry keeps the answers
+        already collected.
     """
     if not questions:
         return []
 
-    cities_text = _format_list(target_cities, "its general service area")
-    services_text = _format_list(services, "its core services")
-    numbered_questions = "\n".join(f"{i + 1}. {q}" for i, q in enumerate(questions))
+    facts_text = _format_client_facts(
+        business_name, business_category, target_cities, services, company_facts
+    )
+    grounding = _FAQ_GROUNDING_RULES.format(business_name=business_name)
+    answers = [""] * len(questions)
 
-    prompt = f"""Answer each of the following {len(questions)} real Google "People Also
-Ask" questions, on behalf of {business_name}, a {business_category}
-business serving {cities_text}. Services/products to reference when
-relevant: {services_text}.
+    for attempt in range(FAQ_ANSWER_MAX_ATTEMPTS):
+        pending = [i for i, answer in enumerate(answers) if not answer]
+        if not pending:
+            break
+        numbered_questions = "\n".join(f"{i + 1}. {questions[i]}" for i in pending)
+        prompt = f"""Answer each of the following {len(pending)} real Google "People Also
+Ask" style questions on behalf of {business_name}. Return JSON.
+
+CLIENT FACTS:
+{facts_text}
+
+{grounding}
 
 QUESTIONS:
 {numbered_questions}
 
 REQUIREMENTS:
-1. Answer EVERY question, in the same order, one answer per question.
-2. Each answer is 2-4 sentences, factual and specific to this business/
-   industry -- no generic filler, no invented statistics or claims you
-   cannot support.
-3. Plain prose only -- no markdown, no headings, no bullet points.
-4. Do not repeat the question text in the answer.
+1. Answer EVERY question listed, using the question's own number.
+2. Each answer is 2-4 sentences of plain prose: no markdown, no headings, no
+   bullet points, and do not repeat the question text.
+3. Follow the GROUNDING RULES exactly.
 
 OUTPUT FORMAT:
-Return ONLY the answers, one per line, each prefixed with its question
-number and a period (e.g. "1. <answer text>"), matching the question
-numbering above exactly. No preamble, no explanations."""
+Return ONLY a JSON object of this exact shape, with no other text:
+{{"answers": [{{"number": <question number>, "answer": "<answer text>"}}]}}"""
+        try:
+            content = _call_openai(
+                system_message=(
+                    "You write accurate, customer-facing FAQ answers for "
+                    "local-service businesses and never invent facts about "
+                    "the business."
+                ),
+                prompt=prompt,
+                max_tokens=max(500, len(pending) * FAQ_ANSWER_TOKENS_PER_QUESTION),
+                json_mode=True,
+            )
+        except AiContentError:
+            if attempt == 0:
+                raise
+            break
+        for number, answer in _answers_from_reply(content, len(questions)).items():
+            if number - 1 in pending:
+                answers[number - 1] = answer
+    return answers
 
+
+def _normalize_question(question: str) -> str:
+    return re.sub(r"[^a-z0-9 ]+", "", question.lower()).strip()
+
+
+def generate_faq_questions(
+    business_name: str,
+    business_category: str,
+    target_cities: list,
+    services: list,
+    existing_questions: list,
+    count: int,
+    company_facts: dict | None = None,
+) -> list:
+    """Writes up to `count` new FAQ questions a real customer of this kind of
+    business would ask, for topping up a Google People Also Ask result that
+    came back short. These are AI-suggested, not real Google questions --
+    callers must label them as such. Questions that duplicate anything in
+    `existing_questions` (ignoring case and punctuation) are dropped, so the
+    result can be shorter than `count`.
+
+    Raises:
+        AiContentError: on any failure to reach/parse the API response.
+    """
+    if count < 1:
+        return []
+
+    facts_text = _format_client_facts(
+        business_name, business_category, target_cities, services, company_facts
+    )
+    existing_text = "\n".join(f"- {q}" for q in existing_questions) or "- (none yet)"
+    requested = count + 2  # headroom for duplicates dropped below
+    prompt = f"""Write {requested} frequently asked questions that real customers
+of the business below would search for or ask before hiring it. Return JSON.
+
+CLIENT FACTS:
+{facts_text}
+
+QUESTIONS ALREADY COVERED (do not repeat or rephrase these):
+{existing_text}
+
+REQUIREMENTS:
+1. Questions only -- do NOT write answers.
+2. Each question is a single natural sentence ending in a question mark, about
+   the services or the trade itself, phrased the way a customer would say it.
+3. Do not assert any fact about the business inside a question (no prices,
+   guarantees, hours, years in business, or awards).
+4. No two questions may ask the same thing.
+
+OUTPUT FORMAT:
+Return ONLY a JSON object of this exact shape, with no other text:
+{{"questions": ["<question>", "<question>"]}}"""
     content = _call_openai(
         system_message=(
-            "You are a customer-facing FAQ writer for local-service "
-            "businesses, answering real Google 'People Also Ask' "
-            "questions accurately and concisely."
+            "You write realistic customer FAQ questions for local-service "
+            "businesses."
         ),
         prompt=prompt,
-        max_tokens=max(500, len(questions) * 150),
+        max_tokens=max(300, requested * FAQ_QUESTION_TOKENS_PER_QUESTION),
+        json_mode=True,
     )
+    entries = _parse_json_object(content).get("questions")
+    if not isinstance(entries, list):
+        return []
 
-    answers_by_number = {}
-    for line in content.splitlines():
-        line = line.strip()
-        if not line:
+    seen = {_normalize_question(q) for q in existing_questions}
+    fresh: list = []
+    for entry in entries:
+        if not isinstance(entry, str) or not entry.strip():
             continue
-        match = re.match(r"^(\d+)[.)]\s*(.+)$", line)
-        if match:
-            answers_by_number[int(match.group(1))] = match.group(2).strip()
-    return [answers_by_number.get(i + 1, "") for i in range(len(questions))]
+        question = entry.strip()
+        key = _normalize_question(question)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        fresh.append(question)
+    return fresh[:count]
