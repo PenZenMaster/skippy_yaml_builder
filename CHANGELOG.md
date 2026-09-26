@@ -5,6 +5,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-09-26
+
+First stable release. No breaking change to the YAML or job-file shape;
+the major bump marks the feature set as production-ready (Diagram,
+Listicle and Masspage_Silo_Local exports, Content Silo, AI generation,
+image handling and export validation). Changes since 0.10.0:
+
 ### Added
 
 - **Bucket-name check on `YACSS Bucket Keyword` (Diagram exports only).**
