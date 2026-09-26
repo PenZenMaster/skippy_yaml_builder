@@ -5,6 +5,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-26
+
+No change to the YAML or job-file shape.
+
 ### Changed
 
 - **FAQ generation refactored** (FAQ tab, "Generate FAQs from People Also

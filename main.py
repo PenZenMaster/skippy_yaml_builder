@@ -83,7 +83,7 @@ from yacss_api import (
 # running instance is identifiable, unlike the old hardcoded "v4" (a
 # leftover UI-redesign label, not a real version, that stopped being
 # updated years before this was added).
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 README_PATH = Path(__file__).resolve().parent / "README.md"
 
