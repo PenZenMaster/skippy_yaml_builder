@@ -1,10 +1,21 @@
 ## Resume From
 
-Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-09-26_1609.md`
-Last session: 2026-09-26
-Branch: main | Version: 1.0.0 (no git tag yet)
+Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-09-26_1635.md`
+Last session: 2026-09-26 (afternoon, part 2)
+Branch: main | Version: 1.1.0 (no git tag yet)
 
-**2026-09-26**: released **v1.0.0** (`c384ddf`; no change to the YAML or
+**2026-09-26 (afternoon, part 2)**: FAQ generation refactored and
+released as **v1.1.0** (`72b7a61`, `5bd0c62`). Fixes made-up client
+info (answers grounded in the form's facts), too-few FAQs (expanded PAA
++ city-variant searches + labelled AI-suggested top-up) and zero/blank
+output (hyphenated bucket keyword cleaned into a real search phrase;
+JSON answers with blank-only retries). New `faq_generation.py`. 264/264
+tests, pushed. **Next: run it once on a real client** -- everything is
+mock-tested only; check the count is reached and answers stay factual.
+Cost per click is higher (up to 4 SERP + 4 OpenAI calls). Detail in the
+checkpoint.
+
+**2026-09-26 (afternoon)**: released **v1.0.0** (`c384ddf`; no change to the YAML or
 job-file shape) after shipping the **bucket-keyword check** (`94709aa`):
 Diagram exports now warn (advisory, still exportable) when `YACSS Bucket
 Keyword` has anything other than lowercase letters, digits and hyphens --
