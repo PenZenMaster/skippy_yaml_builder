@@ -1,8 +1,22 @@
 ## Resume From
 
-Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-09-25_1423.md`
-Last session: 2026-09-25 (afternoon, part 2)
-Branch: main | Version: 0.10.0 (+ `[Unreleased]` changelog entry)
+Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-09-26_1609.md`
+Last session: 2026-09-26
+Branch: main | Version: 1.0.0 (no git tag yet)
+
+**2026-09-26**: released **v1.0.0** (`c384ddf`; no change to the YAML or
+job-file shape) after shipping the **bucket-keyword check** (`94709aa`):
+Diagram exports now warn (advisory, still exportable) when `YACSS Bucket
+Keyword` has anything other than lowercase letters, digits and hyphens --
+closes the long-carried underscore/bucket-creation Known Issue. Existing
+Diagram keywords with spaces will now warn on export. The user also
+confirmed the 750-word AI Diagram Content check and the v0.10.0 image
+fields on real client work. The recurring `venv\Scripts\activate.bat`
+text was VS Code's Python extension auto-activating terminals; disabled
+via a user-level VS Code setting. Stale launch-codes file and a dead
+permission entry removed (`50e054d`). 231/231 tests, pushed. **Next:**
+Content Silo real-client validation; optionally tag `v1.0.0`. Detail in
+the checkpoint.
 
 **2026-09-25 (afternoon, part 2)**: Diagram Content "Generate with AI" now
 produces at least **750 rendered words** (spintax counted at each group's
