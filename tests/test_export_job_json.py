@@ -30,7 +30,7 @@ def _fill_required_fields(form):
     form.inputs["ZIP"].setText("75201")
     form.inputs["YACSS Build Type"].setCurrentText("Diagram")
     form.inputs["YACSS Template"].setCurrentText("porto-001")
-    form.inputs["YACSS Bucket Keyword"].setText("emergency plumber dallas")
+    form.inputs["YACSS Bucket Keyword"].setText("emergency-plumber-dallas")
     form.inputs["YACSS Tier0 Pages"].setText("1")
 
 
@@ -110,7 +110,7 @@ def test_build_cloud_stack_job_happy_path_no_warnings(qapp):
     assert warnings == []
     assert job["job_id"] == "acme-plumbing"
     assert job["type"] == "cloud_stack"
-    assert job["keyword"] == "emergency plumber dallas"
+    assert job["keyword"] == "emergency-plumber-dallas"
     assert job["name"] == "Acme Plumbing"
     assert job["template"] == "porto-001"
     assert job["landing_url"] == "https://acmeplumbing.example"
@@ -914,6 +914,62 @@ def test_build_cloud_stack_job_omits_content_image_urls_when_blank(qapp):
     job, _ = form._build_cloud_stack_job()
 
     assert "content_image_urls" not in job
+
+
+def test_build_cloud_stack_job_warns_on_bucket_unsafe_keyword(qapp):
+    for unsafe in (
+        "salvo_metal_works",
+        "emergency plumber dallas",
+        "Emergency-Plumber",
+        "plumber.dallas",
+    ):
+        form = YAMLForm()
+        _fill_required_fields(form)
+        form.inputs["YACSS Bucket Keyword"].setText(unsafe)
+
+        _, warnings = form._build_cloud_stack_job()
+
+        assert any(
+            "YACSS Bucket Keyword" in w and "lowercase letters" in w for w in warnings
+        ), unsafe
+
+
+def test_build_cloud_stack_job_bucket_safe_keyword_has_no_bucket_warning(qapp):
+    form = YAMLForm()
+    _fill_required_fields(form)
+    form.inputs["YACSS Bucket Keyword"].setText("salvo-metal-works-01")
+
+    _, warnings = form._build_cloud_stack_job()
+
+    assert not any("lowercase letters" in w for w in warnings)
+
+
+def test_build_cloud_stack_job_blank_bucket_keyword_only_warns_as_blank(qapp):
+    form = YAMLForm()
+    _fill_required_fields(form)
+    form.inputs["YACSS Bucket Keyword"].setText("")
+
+    _, warnings = form._build_cloud_stack_job()
+
+    assert any("YACSS Bucket Keyword is blank" in w for w in warnings)
+    assert not any("lowercase letters" in w for w in warnings)
+
+
+def test_listicle_and_masspage_keywords_are_not_checked_for_bucket_safety(qapp):
+    # Bucket Keyword is a plain target keyword (spaces are fine) for these
+    # build types, so the Diagram-only bucket-name rule must not fire.
+    for build_type, builder in (
+        ("Listicle", "_build_listicle_job"),
+        ("Masspage_Silo_Local", "_build_masspage_job"),
+    ):
+        form = YAMLForm()
+        _fill_required_fields(form)
+        form.inputs["YACSS Build Type"].setCurrentText(build_type)
+        form.inputs["YACSS Bucket Keyword"].setText("Emergency Plumber Dallas")
+
+        _, warnings = getattr(form, builder)()
+
+        assert not any("lowercase letters" in w for w in warnings), build_type
 
 
 def test_build_cloud_stack_job_warns_when_both_content_image_fields_filled(qapp):

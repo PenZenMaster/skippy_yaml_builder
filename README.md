@@ -270,6 +270,15 @@ change `YACSS Bucket Keyword` -- it names the real cloud storage bucket,
 so an unchanged keyword with the same page titles overwrites the prior
 build's actual published pages, not just the local manifest entry.
 
+For a Diagram build, `YACSS Bucket Keyword` must also be safe as a bucket
+name: lowercase letters, digits and hyphens only (e.g.
+`acme-plumbing-01`, not `acme_plumbing` or `Acme Plumbing`). **Export Job
+JSON** adds a warning to its "Export Warnings" dialog when the keyword
+contains anything else -- underscores in particular broke real bucket
+creation on Backblaze/Azure/AWS. The warning is advisory (you can still
+export anyway) and is not shown for Listicle or Masspage_Silo_Local, where
+the field is a plain target keyword.
+
 Whenever `YACSS Job ID (override)` is left blank, **Export Job JSON**
 prompts with a "Confirm Job ID" dialog showing the auto-derived `job_id`,
 editable in place, before writing the file. Accepting the pre-filled

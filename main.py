@@ -88,6 +88,13 @@ __version__ = "0.10.0"
 
 README_PATH = Path(__file__).resolve().parent / "README.md"
 
+# A Diagram build's YACSS Bucket Keyword becomes the real cloud bucket
+# name, and the strictest common denominator across YACSS's providers
+# (S3/GCS/Azure/Backblaze) is lowercase letters, digits and hyphens.
+# Underscores broke real bucket creation on Backblaze/Azure/AWS for
+# Salvo Metal Works (2026-08-26).
+_BUCKET_SAFE_KEYWORD_RE = re.compile(r"[a-z0-9-]+")
+
 # Export Job JSON's default save directory -- rr_yacss_factory's own jobs/
 # folder, where every existing job file (example-*.json, real client jobs)
 # already lives, so `factory run -f jobs/<name>.json` works with no path
@@ -2607,6 +2614,13 @@ class YAMLForm(QMainWindow):
 
         require(client_name, "* Client Name")
         require(keyword, "YACSS Bucket Keyword")
+        if keyword.strip() and not _BUCKET_SAFE_KEYWORD_RE.fullmatch(keyword.strip()):
+            warnings.append(
+                f"YACSS Bucket Keyword {keyword.strip()!r} becomes the real cloud "
+                "bucket name, but only lowercase letters, digits and hyphens are "
+                "safe across providers (underscores, spaces, uppercase and "
+                "symbols can break bucket creation)"
+            )
         require(template, "YACSS Template")
         require(landing_url, "* Website")
         require(target_link_text_before, "YACSS Text Before Target Link")

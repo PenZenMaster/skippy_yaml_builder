@@ -5,6 +5,19 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Bucket-name check on `YACSS Bucket Keyword` (Diagram exports only).**
+  Export Job JSON now adds an advisory warning to the "Export Warnings"
+  dialog when the keyword contains anything other than lowercase letters,
+  digits and hyphens, because for Diagram builds it becomes the real cloud
+  bucket name (underscores broke bucket creation on Backblaze/Azure/AWS for
+  Salvo Metal Works). Advisory only: you can still choose "Export anyway",
+  and nothing is rewritten. Listicle and Masspage_Silo_Local are not
+  checked, since the field is a plain target keyword there. Migration
+  note: an existing client whose Diagram keyword contains spaces (e.g.
+  `emergency plumber dallas`) will now see this warning on export.
+
 ### Changed
 
 - **Diagram Content "Generate with AI" now produces at least 750 words of
