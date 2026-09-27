@@ -122,7 +122,7 @@ def test_build_cloud_stack_job_happy_path_no_warnings(qapp):
         {"tier": 1, "pages": 3, "cloud_account_ids": ["28205", "27502"]}
     ]
     assert job["page_titles"] == ["Home", "Page 1", "Page 2", "Page 3"]
-    assert job["content"] == "Some real content."
+    assert job["content"] == "<p>Some real content.</p>"
     assert job["company"] == {
         "name": "Acme Plumbing",
         "address": "123 Main St",
@@ -135,6 +135,38 @@ def test_build_cloud_stack_job_happy_path_no_warnings(qapp):
     assert "extra_fields" not in job
     assert "hero_image_url" not in job
     assert "content_image_url" not in job
+
+
+def test_build_cloud_stack_job_wraps_paragraphs_in_p_tags(qapp):
+    # A bare "\n\n"-separated string collapses to whitespace in HTML and
+    # renders as one contiguous block once YACSS publishes it, so each
+    # blank-line-separated paragraph is wrapped in its own <p> tag.
+    form = YAMLForm()
+    _fill_required_fields(form)
+    form.inputs["YACSS Diagram Page Titles (one per line)"].setPlainText("Home")
+    form.inputs["YACSS Diagram Content"].setPlainText(
+        "First paragraph.\n\nSecond paragraph."
+    )
+
+    job, _ = form._build_cloud_stack_job()
+
+    assert job["content"] == "<p>First paragraph.</p><p>Second paragraph.</p>"
+
+
+def test_build_cloud_stack_job_content_paragraphs_join_soft_wrapped_lines(qapp):
+    # A single newline inside a paragraph is a soft wrap, not a break --
+    # joined with a space rather than starting a new <p>. Extra blank
+    # lines between paragraphs collapse rather than producing empty <p>s.
+    form = YAMLForm()
+    _fill_required_fields(form)
+    form.inputs["YACSS Diagram Page Titles (one per line)"].setPlainText("Home")
+    form.inputs["YACSS Diagram Content"].setPlainText(
+        "Line one\nline two.\n\n\nSecond paragraph."
+    )
+
+    job, _ = form._build_cloud_stack_job()
+
+    assert job["content"] == "<p>Line one line two.</p><p>Second paragraph.</p>"
 
 
 def test_build_cloud_stack_job_job_id_override_wins_over_auto_derived_slug(qapp):
@@ -558,7 +590,7 @@ def test_build_masspage_job_happy_path_no_warnings(qapp):
         "template": "porto-001",
         "landing_url": "https://acmeplumbing.example",
         "page_titles": ["Emergency Plumbing Repair", "Drain Cleaning"],
-        "content": "Acme Plumbing serves greater Dallas.",
+        "content": "<p>Acme Plumbing serves greater Dallas.</p>",
         "ai_platform": "openai",
         "cloud_account_ids": ["28205"],
         "lsi_keyword": "acme-plumbing-diagram-stack",

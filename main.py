@@ -83,7 +83,7 @@ from yacss_api import (
 # running instance is identifiable, unlike the old hardcoded "v4" (a
 # leftover UI-redesign label, not a real version, that stopped being
 # updated years before this was added).
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 README_PATH = Path(__file__).resolve().parent / "README.md"
 
@@ -1658,6 +1658,23 @@ class YAMLForm(QMainWindow):
         slug = re.sub(r"[^a-z0-9]+", "-", text.strip().lower())
         return slug.strip("-")
 
+    @staticmethod
+    def _content_to_html_paragraphs(text: str) -> str:
+        """Wraps blank-line-separated paragraphs (the format "YACSS
+        Diagram Content" is written in -- see that field's setup comment
+        and generate_diagram_content's prompt in ai_content_generator.py)
+        in <p> tags, e.g. "First.\\n\\nSecond." -> "<p>First.</p><p>Second.
+        </p>". A bare "\\n\\n"-separated string collapses to whitespace in
+        HTML and renders as one contiguous block once YACSS publishes it
+        -- confirmed live. A single newline inside a paragraph is treated
+        as a soft wrap, not a break, and joined with a space."""
+        paragraphs = re.split(r"\n\s*\n", text.strip())
+        return "".join(
+            f"<p>{' '.join(paragraph.split())}</p>"
+            for paragraph in paragraphs
+            if paragraph.strip()
+        )
+
     def _resolve_job_id(self, default: str) -> str:
         """Returns the "YACSS Job ID (override)" field's value if the user
         filled it in, else the given auto-derived default -- shared by all
@@ -2702,7 +2719,7 @@ class YAMLForm(QMainWindow):
             "tier0_pages": tier0_pages,
             "tiers": tiers,
             "page_titles": page_titles,
-            "content": content,
+            "content": self._content_to_html_paragraphs(content),
         }
 
         faqs = self._serialize_faq_rows()
@@ -2974,7 +2991,7 @@ class YAMLForm(QMainWindow):
             "template": template,
             "landing_url": landing_url,
             "page_titles": page_titles,
-            "content": content,
+            "content": self._content_to_html_paragraphs(content),
             "ai_platform": ai_platform,
             "cloud_account_ids": cloud_account_ids,
             "lsi_keyword": lsi_keyword,

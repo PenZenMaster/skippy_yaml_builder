@@ -5,6 +5,24 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-27
+
+### Fixed
+
+- **`YACSS Diagram Content` paragraphs now render as real paragraph
+  breaks after YACSS publishes them** (Diagram and Masspage_Silo_Local,
+  which share this field). The field is written as blank-line-separated
+  paragraphs (the AI-written draft already does this), but a bare
+  `"\n\n"`-separated string collapses to whitespace in HTML and rendered
+  as one contiguous block -- confirmed live. **Export Job JSON** now
+  wraps each paragraph in its own `<p>` tag (e.g. `First paragraph.\n\n
+  Second paragraph.` -> `<p>First paragraph.</p><p>Second paragraph.
+  </p>`) before writing the job file. A single newline inside a
+  paragraph is a soft wrap, not a break, and is joined with a space.
+  Migration note: re-exporting an existing client's Diagram/Masspage job
+  file will change its `content` value from plain text to `<p>`-wrapped
+  HTML.
+
 ## [1.2.0] - 2026-09-27
 
 ### Changed

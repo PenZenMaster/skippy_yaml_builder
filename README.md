@@ -207,6 +207,16 @@ Regenerate or add text by hand before accepting. This field uses at least
 6,000 output tokens regardless of a lower `OPENAI_MAX_TOKENS` in
 `cloud-stack-generator`'s `.env`.
 
+Type or generate paragraphs separated by a blank line (the AI-written
+draft already does this); **Export Job JSON** wraps each one in its own
+`<p>` tag (e.g. `First paragraph.\n\nSecond paragraph.` becomes
+`<p>First paragraph.</p><p>Second paragraph.</p>`) so YACSS's published
+HTML renders real paragraph breaks instead of one contiguous block. A
+single newline inside a paragraph is treated as a soft wrap and joined
+with a space, not a break. This applies to Diagram and
+Masspage_Silo_Local, which share this field; Listicle has no content
+field.
+
 ### FAQ Questions & Answers
 - Type a question, press **Enter** to jump to the Answer cell, type the
   answer, press **Enter** again to open a fresh row -- built specifically
