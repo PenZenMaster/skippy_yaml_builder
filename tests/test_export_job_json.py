@@ -916,32 +916,27 @@ def test_build_cloud_stack_job_omits_content_image_urls_when_blank(qapp):
     assert "content_image_urls" not in job
 
 
-def test_build_cloud_stack_job_warns_on_bucket_unsafe_keyword(qapp):
-    for unsafe in (
-        "salvo_metal_works",
-        "emergency plumber dallas",
-        "Emergency-Plumber",
-        "plumber.dallas",
-    ):
+def test_build_cloud_stack_job_slugifies_bucket_keyword_for_export(qapp):
+    # YACSS Bucket Keyword becomes the real cloud bucket name for Diagram
+    # builds, so the human-readable text typed in the form is hyphenated
+    # into a safe slug at export time -- the form field and saved client
+    # YAML keep the original wording; only job["keyword"] changes.
+    cases = {
+        "Business Tax Consulting Services": "business-tax-consulting-services",
+        "salvo_metal_works": "salvo-metal-works",
+        "Emergency-Plumber": "emergency-plumber",
+        "plumber.dallas": "plumber-dallas",
+        "salvo-metal-works-01": "salvo-metal-works-01",
+    }
+    for typed, expected_slug in cases.items():
         form = YAMLForm()
         _fill_required_fields(form)
-        form.inputs["YACSS Bucket Keyword"].setText(unsafe)
+        form.inputs["YACSS Bucket Keyword"].setText(typed)
 
-        _, warnings = form._build_cloud_stack_job()
+        job, warnings = form._build_cloud_stack_job()
 
-        assert any(
-            "YACSS Bucket Keyword" in w and "lowercase letters" in w for w in warnings
-        ), unsafe
-
-
-def test_build_cloud_stack_job_bucket_safe_keyword_has_no_bucket_warning(qapp):
-    form = YAMLForm()
-    _fill_required_fields(form)
-    form.inputs["YACSS Bucket Keyword"].setText("salvo-metal-works-01")
-
-    _, warnings = form._build_cloud_stack_job()
-
-    assert not any("lowercase letters" in w for w in warnings)
+        assert job["keyword"] == expected_slug, typed
+        assert not any("bucket" in w.lower() for w in warnings), typed
 
 
 def test_build_cloud_stack_job_blank_bucket_keyword_only_warns_as_blank(qapp):
@@ -949,15 +944,30 @@ def test_build_cloud_stack_job_blank_bucket_keyword_only_warns_as_blank(qapp):
     _fill_required_fields(form)
     form.inputs["YACSS Bucket Keyword"].setText("")
 
-    _, warnings = form._build_cloud_stack_job()
+    job, warnings = form._build_cloud_stack_job()
 
     assert any("YACSS Bucket Keyword is blank" in w for w in warnings)
-    assert not any("lowercase letters" in w for w in warnings)
+    assert not any("bucket" in w.lower() and "blank" not in w.lower() for w in warnings)
+    assert job["keyword"] == ""
 
 
-def test_listicle_and_masspage_keywords_are_not_checked_for_bucket_safety(qapp):
+def test_build_cloud_stack_job_symbol_only_bucket_keyword_warns(qapp):
+    # A keyword with no letters or digits (e.g. all punctuation) slugifies
+    # to an empty string, which can't become a real bucket name either.
+    form = YAMLForm()
+    _fill_required_fields(form)
+    form.inputs["YACSS Bucket Keyword"].setText("---")
+
+    job, warnings = form._build_cloud_stack_job()
+
+    assert any("YACSS Bucket Keyword" in w and "slugified" in w for w in warnings)
+    assert job["keyword"] == "---"
+
+
+def test_listicle_and_masspage_keywords_are_not_slugified(qapp):
     # Bucket Keyword is a plain target keyword (spaces are fine) for these
-    # build types, so the Diagram-only bucket-name rule must not fire.
+    # build types, and rr_yacss_factory slugifies lsi_keyword itself, so
+    # this app must pass it through untouched.
     for build_type, builder in (
         ("Listicle", "_build_listicle_job"),
         ("Masspage_Silo_Local", "_build_masspage_job"),
@@ -967,9 +977,9 @@ def test_listicle_and_masspage_keywords_are_not_checked_for_bucket_safety(qapp):
         form.inputs["YACSS Build Type"].setCurrentText(build_type)
         form.inputs["YACSS Bucket Keyword"].setText("Emergency Plumber Dallas")
 
-        _, warnings = getattr(form, builder)()
+        job, _ = getattr(form, builder)()
 
-        assert not any("lowercase letters" in w for w in warnings), build_type
+        assert job["lsi_keyword"] == "Emergency Plumber Dallas", build_type
 
 
 def test_build_cloud_stack_job_warns_when_both_content_image_fields_filled(qapp):

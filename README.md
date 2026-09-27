@@ -288,14 +288,19 @@ change `YACSS Bucket Keyword` -- it names the real cloud storage bucket,
 so an unchanged keyword with the same page titles overwrites the prior
 build's actual published pages, not just the local manifest entry.
 
-For a Diagram build, `YACSS Bucket Keyword` must also be safe as a bucket
-name: lowercase letters, digits and hyphens only (e.g.
-`acme-plumbing-01`, not `acme_plumbing` or `Acme Plumbing`). **Export Job
-JSON** adds a warning to its "Export Warnings" dialog when the keyword
-contains anything else -- underscores in particular broke real bucket
-creation on Backblaze/Azure/AWS. The warning is advisory (you can still
-export anyway) and is not shown for Listicle or Masspage_Silo_Local, where
-the field is a plain target keyword.
+For a Diagram build, `YACSS Bucket Keyword` becomes the real cloud bucket
+name, so **Export Job JSON** hyphenates it into a safe slug (lowercase
+letters, digits and hyphens only -- e.g. `Business Tax Consulting
+Services` -> `business-tax-consulting-services`) before writing the job
+file. You can type a human-readable name; only the exported
+`keyword` is slugified -- the form field and the saved client YAML keep
+your original wording. Underscores in particular used to break real
+bucket creation on Backblaze/Azure/AWS before this was hyphenated. A
+keyword with no letters or digits at all (e.g. `---`) still gets an
+advisory warning in the "Export Warnings" dialog, since it can't slugify
+into anything usable. This does not apply to Listicle or
+Masspage_Silo_Local, where the field is a plain target keyword that
+`rr_yacss_factory` slugifies on its own end.
 
 Whenever `YACSS Job ID (override)` is left blank, **Export Job JSON**
 prompts with a "Confirm Job ID" dialog showing the auto-derived `job_id`,

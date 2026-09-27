@@ -5,6 +5,27 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-27
+
+### Changed
+
+- **`YACSS Bucket Keyword` is now auto-hyphenated into the exported job's
+  `keyword` (Diagram builds only)**, instead of only warning about unsafe
+  characters. Since it becomes the real cloud bucket name, **Export Job
+  JSON** now slugifies it (lowercase letters, digits, hyphens -- e.g.
+  `Business Tax Consulting Services` -> `business-tax-consulting-services`)
+  before writing the job file. The form field and the saved client YAML
+  keep whatever you typed; only the exported `keyword` changes. A keyword
+  with no letters or digits at all (e.g. `---`) still gets an advisory
+  warning, since it can't slugify into anything usable. Listicle and
+  Masspage_Silo_Local are unaffected -- `rr_yacss_factory` slugifies that
+  field (`lsi_keyword`) on its own end.
+  Migration note: an existing Diagram client whose keyword contains
+  spaces, underscores or uppercase will now export a *different*
+  `keyword` value than before (previously written verbatim with an
+  advisory warning) -- re-exporting will target a new bucket name unless
+  you already normalized it by hand.
+
 ## [1.1.0] - 2026-09-26
 
 No change to the YAML or job-file shape.
