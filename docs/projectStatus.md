@@ -1,8 +1,13 @@
 ## Resume From
 
-Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-10-08_1822.md`
-Last session: 2026-10-08 (catch-up only, no code changes)
+Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-10-09_0500.md`
+Last session: 2026-10-09 (Q&A + factory manual fix, no code changes)
 Branch: main | Version: 1.3.0 (no git tag yet)
+
+**2026-10-09**: no code changes. Fixed the stale page-count formula in
+`rr_yacss_factory`'s manual (`ebc738a`), but its working copy was later
+reverted on disk by something outside the session -- see the checkpoint.
+Tier 0 has no cloud-account field; its host provider is unverified.
 
 **2026-10-08**: status caught up. Two releases from 2026-09-27 had no
 checkpoint: **v1.2.0** (`03cb3eb`, Diagram export auto-hyphenates `YACSS
