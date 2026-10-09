@@ -1,8 +1,15 @@
 ## Resume From
 
-Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-09-26_1635.md`
-Last session: 2026-09-26 (afternoon, part 2)
-Branch: main | Version: 1.1.0 (no git tag yet)
+Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-10-08_1822.md`
+Last session: 2026-10-08 (catch-up only, no code changes)
+Branch: main | Version: 1.3.0 (no git tag yet)
+
+**2026-10-08**: status caught up. Two releases from 2026-09-27 had no
+checkpoint: **v1.2.0** (`03cb3eb`, Diagram export auto-hyphenates `YACSS
+Bucket Keyword` into the job `keyword`) and **v1.3.0** (`b746125`, Diagram
+Content paragraphs wrapped in `<p>` on export). 266/266 tests. **Next:**
+live-verify FAQ generation (v1.1.0) plus the v1.2.0/v1.3.0 exports on a
+real factory run.
 
 **2026-09-26 (afternoon, part 2)**: FAQ generation refactored and
 released as **v1.1.0** (`72b7a61`, `5bd0c62`). Fixes made-up client
