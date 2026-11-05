@@ -971,6 +971,86 @@ def test_build_cloud_stack_job_slugifies_bucket_keyword_for_export(qapp):
         assert not any("bucket" in w.lower() for w in warnings), typed
 
 
+def _fill_pinned_two_tier_stack(form):
+    _fill_required_fields(form)
+    form.inputs["YACSS Bucket Keyword"].setText("Commercial Micro Pile Installer")
+    form.inputs["YACSS Tiers (tier:pages, one per line)"].setPlainText("1:1\n2:2")
+    form.diagram_tier_accounts_table.setItem(0, 1, QTableWidgetItem("11883"))
+    form.diagram_tier_accounts_table.setItem(1, 1, QTableWidgetItem("25701,11883"))
+    form.inputs["YACSS Pinned Bucket"].setText("acme-plumbing")
+
+
+def test_build_cloud_stack_job_pinned_bucket_pins_every_tier_account(qapp):
+    form = YAMLForm()
+    _fill_pinned_two_tier_stack(form)
+
+    job, warnings = form._build_cloud_stack_job()
+
+    # Pinned: the keyword names no bucket, so it is exported as typed.
+    assert job["keyword"] == "Commercial Micro Pile Installer"
+    assert job["cloud_buckets"] == {
+        "11883": "acme-plumbing",
+        "25701": "acme-plumbing",
+    }
+    assert job["directory"] == "commercial-micro-pile-installer"
+    assert not any("Stack Folder" in w for w in warnings)
+
+
+def test_build_cloud_stack_job_stack_folder_overrides_derived_directory(qapp):
+    form = YAMLForm()
+    _fill_pinned_two_tier_stack(form)
+    form.inputs["YACSS Stack Folder"].setText("micro-pile-2027")
+
+    job, _warnings = form._build_cloud_stack_job()
+
+    assert job["directory"] == "micro-pile-2027"
+
+
+def test_build_cloud_stack_job_unpinned_export_is_unchanged(qapp):
+    form = YAMLForm()
+    _fill_required_fields(form)
+    form.inputs["YACSS Bucket Keyword"].setText("Commercial Micro Pile Installer")
+
+    job, _warnings = form._build_cloud_stack_job()
+
+    assert job["keyword"] == "commercial-micro-pile-installer"
+    assert "cloud_buckets" not in job
+    assert "directory" not in job
+
+
+def test_build_cloud_stack_job_warns_on_stack_folder_without_pinned_bucket(qapp):
+    form = YAMLForm()
+    _fill_required_fields(form)
+    form.inputs["YACSS Stack Folder"].setText("some-folder")
+
+    job, warnings = form._build_cloud_stack_job()
+
+    assert "directory" not in job
+    assert any("Stack Folder" in w and "ignored" in w for w in warnings)
+
+
+def test_pinned_bucket_relabels_bucket_keyword_for_diagram(qapp):
+    form = YAMLForm()
+    form.inputs["YACSS Build Type"].setCurrentText("Diagram")
+    label = form.labels["YACSS Bucket Keyword"]
+    assert "creates a NEW bucket" in label.text()
+
+    form.inputs["YACSS Pinned Bucket"].setText("acme-plumbing")
+    assert "pinned bucket" in label.text()
+
+    form.inputs["YACSS Pinned Bucket"].setText("")
+    assert "creates a NEW bucket" in label.text()
+
+
+def test_pinned_bucket_fields_hidden_for_non_diagram_types(qapp):
+    form = YAMLForm()
+    form.inputs["YACSS Build Type"].setCurrentText("Listicle")
+    assert form.inputs["YACSS Pinned Bucket"].isHidden()
+    assert form.inputs["YACSS Stack Folder"].isHidden()
+    form.inputs["YACSS Build Type"].setCurrentText("Diagram")
+    assert not form.inputs["YACSS Pinned Bucket"].isHidden()
+
+
 def test_build_cloud_stack_job_blank_bucket_keyword_only_warns_as_blank(qapp):
     form = YAMLForm()
     _fill_required_fields(form)

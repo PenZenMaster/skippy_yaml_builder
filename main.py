@@ -83,7 +83,7 @@ from yacss_api import (
 # running instance is identifiable, unlike the old hardcoded "v4" (a
 # leftover UI-redesign label, not a real version, that stopped being
 # updated years before this was added).
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
 README_PATH = Path(__file__).resolve().parent / "README.md"
 
@@ -505,6 +505,8 @@ class YAMLForm(QMainWindow):
         "YACSS Template",
         "YACSS Job ID (override)",
         "YACSS Bucket Keyword",
+        "YACSS Pinned Bucket",
+        "YACSS Stack Folder",
         "YACSS Topic Keyword",
         "YACSS Tier0 Pages",
         "YACSS Tiers (tier:pages, one per line)",
@@ -703,6 +705,18 @@ class YAMLForm(QMainWindow):
             # is deliberately filled in.
             "YACSS Job ID (override)": QLineEdit(),
             "YACSS Bucket Keyword": QLineEdit(),
+            # Diagram only, optional: publish into a client bucket that
+            # already exists (same name on every tier cloud account) instead
+            # of letting YACSS create a new keyword-slug bucket per account.
+            # Exported as rr_yacss_factory's CloudStackJob.cloud_buckets +
+            # directory (MANUAL bucket mode, live-proven 2026-11-04/05 for
+            # Pristine Portables and United Structural Systems). When set,
+            # Bucket Keyword no longer names a bucket, so it is exported as
+            # typed (plain text) rather than slugified.
+            "YACSS Pinned Bucket": QLineEdit(),
+            # The stack's folder inside the pinned bucket; blank = the
+            # slugified Bucket Keyword. Ignored without a Pinned Bucket.
+            "YACSS Stack Folder": QLineEdit(),
             # Listicle/Masspage only -- their real ListicleJob/MasspageJob.keyword
             # (see rr_yacss_factory's src/jobs/schema.ts) is the job's own SEO
             # topic (e.g. "best coffee shops in Austin"), a genuinely different
@@ -779,6 +793,8 @@ class YAMLForm(QMainWindow):
             "YACSS Job ID (override)": "blank = auto-generate from Client Name; set/bump this (and YACSS Bucket Keyword) before rebuilding the same client to avoid overwriting the prior build, e.g. acme-plumbing-01",
             "YACSS Template": "e.g. porto-001",
             "YACSS Bucket Keyword": "themed micro-site name -- becomes the real cloud bucket name",
+            "YACSS Pinned Bucket": "optional -- an EXISTING client bucket on every tier account, e.g. united-structural-systems",
+            "YACSS Stack Folder": "blank = hyphenated keyword, e.g. commercial-micro-pile-installer",
             "YACSS Topic Keyword": "e.g. best coffee shops in Austin -- the listicle/masspage subject",
             "YACSS Tier0 Pages": "1",
             "YACSS Tiers (tier:pages, one per line)": "1:5",
@@ -1128,6 +1144,11 @@ class YAMLForm(QMainWindow):
         )
         self.inputs["YACSS Bucket Keyword"].textChanged.connect(
             self._refresh_keyword_research_seed_label
+        )
+        self.inputs["YACSS Pinned Bucket"].textChanged.connect(
+            lambda _text: self._update_bucket_keyword_label(
+                self.inputs["YACSS Build Type"].currentText()
+            )
         )
         self.inputs["YACSS Topic Keyword"].textChanged.connect(
             self._refresh_keyword_research_seed_label
@@ -1499,9 +1520,34 @@ class YAMLForm(QMainWindow):
             self.labels[key].setVisible(is_listicle)
             self.inputs[key].setVisible(is_listicle)
 
+        # Pinned bucket / stack folder map to CloudStackJob only.
+        for key in ("YACSS Pinned Bucket", "YACSS Stack Folder"):
+            self.labels[key].setVisible(is_diagram)
+            self.inputs[key].setVisible(is_diagram)
+
+        self._update_bucket_keyword_label(build_type)
+
+        if is_diagram:
+            self._sync_diagram_tier_table()
+        else:
+            self._update_page_titles_count_label()
+        self._refresh_keyword_research_seed_label()
+
+    def _update_bucket_keyword_label(self, build_type: str):
+        """Relabels YACSS Bucket Keyword for the build type (see
+        _update_build_type_ui's doc comment) and, for Diagram, for whether
+        a Pinned Bucket is set: pinned, the keyword is only the stack's
+        topic and exports as typed; unpinned, it becomes the new bucket."""
+        is_diagram = build_type == "Diagram"
         bucket_label = self.labels["YACSS Bucket Keyword"]
         bucket_widget = self.inputs["YACSS Bucket Keyword"]
-        if is_diagram:
+        pinned = self.inputs["YACSS Pinned Bucket"].text().strip()
+        if is_diagram and pinned:
+            bucket_label.setText("YACSS Topic Keyword (pinned bucket -- no new bucket)")
+            bucket_widget.setPlaceholderText(
+                "plain words, e.g. commercial micro pile installer -- exported as typed"
+            )
+        elif is_diagram:
             bucket_label.setText("YACSS Bucket Keyword (creates a NEW bucket)")
             bucket_widget.setPlaceholderText(
                 "themed micro-site name -- becomes the real cloud bucket name"
@@ -1516,12 +1562,6 @@ class YAMLForm(QMainWindow):
         else:
             bucket_label.setText("YACSS Bucket Keyword")
             bucket_widget.setPlaceholderText(self.placeholders["YACSS Bucket Keyword"])
-
-        if is_diagram:
-            self._sync_diagram_tier_table()
-        else:
-            self._update_page_titles_count_label()
-        self._refresh_keyword_research_seed_label()
 
     @staticmethod
     def _parse_tier_lines(text: str) -> list:
@@ -2613,6 +2653,10 @@ class YAMLForm(QMainWindow):
         keep whatever human-readable text was typed (e.g. "Business Tax
         Consulting Services") -- only the exported job JSON is
         hyphenated (e.g. "business-tax-consulting-services").
+        With YACSS Pinned Bucket set, the keyword names no bucket and is
+        exported as typed; the job instead gets `cloud_buckets` (that
+        bucket on every tier cloud account) and `directory` (YACSS Stack
+        Folder, or the slugified keyword when blank).
         """
         warnings = []
 
@@ -2629,10 +2673,27 @@ class YAMLForm(QMainWindow):
         target_link_text_after = self.inputs["YACSS Text After Target Link"].text()
         tier0_pages_raw = self.inputs["YACSS Tier0 Pages"].text()
 
+        pinned_bucket = self.inputs["YACSS Pinned Bucket"].text().strip()
+        stack_folder = self.inputs["YACSS Stack Folder"].text().strip()
+
         require(client_name, "* Client Name")
         require(keyword, "YACSS Bucket Keyword")
         bucket_keyword = self._slugify(keyword)
-        if keyword.strip() and not bucket_keyword:
+        if pinned_bucket:
+            # Pinned: the keyword names no bucket, so only the folder
+            # fallback needs it to slugify into something.
+            if not stack_folder and keyword.strip() and not bucket_keyword:
+                warnings.append(
+                    f"YACSS Stack Folder is blank and YACSS Bucket Keyword "
+                    f"{keyword.strip()!r} has no letters or digits to derive "
+                    "a folder from -- fill in YACSS Stack Folder"
+                )
+        elif stack_folder:
+            warnings.append(
+                "YACSS Stack Folder is set but YACSS Pinned Bucket is blank -- "
+                "the folder is ignored (it only applies to a pinned bucket)"
+            )
+        if not pinned_bucket and keyword.strip() and not bucket_keyword:
             warnings.append(
                 f"YACSS Bucket Keyword {keyword.strip()!r} has no letters or "
                 "digits once slugified, so it cannot become a real cloud "
@@ -2708,10 +2769,26 @@ class YAMLForm(QMainWindow):
                 self._slugify(client_name) or "cloud-stack-job"
             ),
             "type": "cloud_stack",
-            "keyword": bucket_keyword or keyword.strip(),
+            "keyword": (
+                keyword.strip() if pinned_bucket else bucket_keyword or keyword.strip()
+            ),
             "name": client_name,
             "template": template,
             "landing_url": landing_url,
+        }
+        if pinned_bucket:
+            # rr_yacss_factory's schema requires a pin for every tier
+            # account; the same client bucket name is used on all of them.
+            account_ids = []
+            for tier in tiers:
+                for account_id in tier["cloud_account_ids"]:
+                    if account_id not in account_ids:
+                        account_ids.append(account_id)
+            job["cloud_buckets"] = {
+                account_id: pinned_bucket for account_id in account_ids
+            }
+            job["directory"] = stack_folder or bucket_keyword
+        job |= {
             "target_link_text_before": target_link_text_before,
             "target_link_text": target_link_text,
             "target_link_text_after": target_link_text_after,

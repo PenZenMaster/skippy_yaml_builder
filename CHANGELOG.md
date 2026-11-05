@@ -5,6 +5,29 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-05
+
+### Added
+
+- **`YACSS Pinned Bucket` and `YACSS Stack Folder` (Diagram only, both
+  optional)** -- publish a stack into a client bucket that already exists
+  instead of letting YACSS create a new bucket per cloud account. With
+  Pinned Bucket filled in, **Export Job JSON** adds `cloud_buckets` (that
+  bucket name on every cloud account in the tier table) and `directory`
+  (Stack Folder, or the hyphenated keyword when blank) -- the
+  `rr_yacss_factory` pinned-bucket job shape, live-proven for Pristine
+  Portables and United Structural Systems. The bucket must already exist
+  on every tier account. Stack Folder without a Pinned Bucket is ignored,
+  with a warning.
+
+### Changed
+
+- **With a Pinned Bucket set, `YACSS Bucket Keyword` is exported as typed
+  (plain text), not hyphenated**, and the field is relabelled "YACSS Topic
+  Keyword (pinned bucket -- no new bucket)": it no longer names a bucket,
+  only the stack's topic. Without a Pinned Bucket nothing changes -- same
+  hyphenated keyword and new-bucket export as 1.3.0.
+
 ## [1.3.0] - 2026-09-27
 
 ### Fixed

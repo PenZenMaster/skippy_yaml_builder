@@ -312,6 +312,19 @@ into anything usable. This does not apply to Listicle or
 Masspage_Silo_Local, where the field is a plain target keyword that
 `rr_yacss_factory` slugifies on its own end.
 
+**Publishing into an existing client bucket (Diagram, optional).** Fill
+in `YACSS Pinned Bucket` with a bucket that already exists under the same
+name on every cloud account in the tier table (e.g.
+`united-structural-systems`) and no new bucket is created. **Export Job
+JSON** then adds `cloud_buckets` (that bucket on every tier account) and
+`directory` -- `YACSS Stack Folder`, or the hyphenated keyword when
+blank -- so each stack gets its own folder in the shared bucket. The
+keyword field is relabelled "YACSS Topic Keyword (pinned bucket -- no new
+bucket)" and exported **as typed** (e.g. `commercial micro pile
+installer`), since it no longer names a bucket. Give each stack in the
+same bucket its own folder. Creating the bucket on a new provider is
+still a separate step (`rr_yacss_factory` docs).
+
 Whenever `YACSS Job ID (override)` is left blank, **Export Job JSON**
 prompts with a "Confirm Job ID" dialog showing the auto-derived `job_id`,
 editable in place, before writing the file. Accepting the pre-filled
