@@ -2,14 +2,14 @@
 
 Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-11-05_1459.md`
 Last session: 2026-11-05
-Branch: main | Version: 1.4.0 (no git tag yet; v1.0.0-v1.3.0 tagged)
+Branch: main | Version: 1.4.0 (tagged `v1.4.0`, pushed)
 
 **2026-11-05**: released **v1.4.0** (`1091fc5`): optional `YACSS Pinned
 Bucket` / `YACSS Stack Folder` fields. With a pinned bucket, Diagram
 exports write `cloud_buckets` + `directory` (the factory's live-proven
 pinned-bucket shape) and keep the keyword as typed; unpinned exports are
-unchanged. Gate green, 272/272 tests. **Next:** real-run a pinned-bucket
-export through the factory; tag `v1.4.0`.
+unchanged. Gate green, 272/272 tests. Tagged `v1.4.0` and pushed.
+**Next:** real-run a pinned-bucket export through the factory.
 
 **2026-10-09**: no code changes. Fixed the stale page-count formula in
 `rr_yacss_factory`'s manual (`ebc738a`), but its working copy was later
