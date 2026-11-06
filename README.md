@@ -400,6 +400,40 @@ size cap.
 downstream build step -- there's no established convention yet for exactly
 how it would be used. Fill it in for future use, or leave blank.
 
+## Autobuild: a Cloud Stack from a client and a keyword (no app)
+
+```
+venv/Scripts/python.exe autobuild.py --client "United Structural Systems" --keyword "commercial foundation repair"
+```
+
+Drafts a whole Diagram (Cloud Stack) job without opening the app:
+
+- **Client facts** come from the newest Diagram-type file in
+  `client_yaml/<client>/` (the folder name is matched ignoring case, `-`,
+  `_` and spaces). Use `--from <file>` to pick a specific file. A 10-digit
+  phone is shown as `(xxx) xxx-xxxx`, as the app does.
+- **Build settings** come from the stack profile
+  (`stack_profiles/default.yaml`, or `--profile <file>`), which always wins
+  over the client file's own YACSS settings. Edit the profile to change the
+  house template, tiers, cloud accounts, AI model or tone.
+- **Page titles**: title 1 is the keyword; the rest are the top keyword-
+  research clusters by search volume (flagged brand/off-target ones
+  skipped); AI writes any that research can't supply.
+- **Content** (spun, AI) and **15 FAQs** (Google People Also Ask first, AI
+  to make up the rest, answers grounded in the client's facts).
+- **Link text**: an ALL-CAPS client name is shown with capitalised words.
+- **Job id**: `<client-folder>-<keyword>`, with `-02`, `-03`... added if a
+  job file or rr_yacss_factory manifest entry already uses it. A pinned
+  bucket gets a folder named after the keyword.
+
+It writes `client_yaml/<client>/<job-id>.yaml` (open it in the app to
+review or edit) and `../rr_yacss_factory/jobs/<job-id>.json`, then prints a
+summary marking every AI-written title and FAQ plus any warnings. It never
+calls rr_yacss_factory or YACSS, so nothing spends YACSS credits -- review
+the summary, then run the factory as usual. If any research or AI step
+fails, it stops and writes nothing. Keyword research and AI calls do cost
+DataForSEO/OpenAI credits on every run.
+
 ## For developers
 
 To run, double-click `run.cmd` (or run it from a terminal) -- it creates

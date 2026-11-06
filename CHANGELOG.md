@@ -7,6 +7,18 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **`autobuild.py`: a Cloud Stack job from a client and a keyword, no
+  app.** Takes client facts from the newest Diagram file in
+  `client_yaml/<client>/` (or `--from`), applies the stack profile, picks
+  page titles (keyword first, then unflagged keyword-research clusters by
+  volume, AI for any shortfall), writes spun content and 15 FAQs (People
+  Also Ask, AI top-up), builds the job with `job_export`, and checks image
+  sizes. Writes a new client YAML and a rr_yacss_factory job file with a
+  unique `<client>-<keyword>` job id, and prints a summary marking AI-written
+  titles/FAQs. Never calls YACSS or the factory; stops and writes nothing if
+  any research/AI step fails. ALL-CAPS client names are shown with
+  capitalised words in the link text; 10-digit phones as `(xxx) xxx-xxxx`.
+  See README, "Autobuild".
 - **Stack profiles (`stack_profile.py`, `stack_profiles/default.yaml`).** A
   profile holds the house YACSS build settings (template, tiers, cloud
   accounts per tier, AI platform/model, tone, content mode, target-link
