@@ -371,3 +371,114 @@ def test_research_titles_stop_at_needed():
 )
 def test_title_words(text, expected):
     assert autobuild.title_words(text) == expected
+
+
+# --------------------------------------------------------------------------
+# --submit (factory runner faked; nothing reaches YACSS)
+# --------------------------------------------------------------------------
+
+ONBOARD_OK = "cloud (account 25398): exists -- already exists\n" + (
+    autobuild.NOTHING_TO_CREATE
+)
+
+
+def _runner(responses):
+    calls = []
+
+    def run(args):
+        calls.append(args)
+        return responses[args[0]]
+
+    return run, calls
+
+
+def _log():
+    lines = []
+    return lines, lines.append
+
+
+def test_submit_checks_bucket_then_drafts_without_confirm(env, tmp_path):
+    result = _draft(env, _services([]))
+    run, calls = _runner(
+        {"onboard-client": (0, ONBOARD_OK), "all": (0, "created: 1, failed: 0")}
+    )
+    lines, log = _log()
+    manifest = tmp_path / "m.json"
+    manifest.write_text("{}", encoding="utf-8")
+
+    assert autobuild.submit(result, run=run, log=log, manifest=manifest) == 0
+    accounts = ",".join(result.job["cloud_buckets"])
+    assert calls == [
+        ["onboard-client", "united-structural-systems", "-a", accounts],
+        ["all", "-f", f"jobs/{result.job_id}.json"],
+    ]
+    assert not any("--confirm" in arg for call in calls for arg in call)
+    text = "\n".join(lines)
+    assert f"src/cli.ts all -f jobs/{result.job_id}.json --confirm" in text
+    assert "also generates" not in text
+
+
+def test_submit_stops_on_warnings_without_calling_the_factory(env):
+    services = _services([])
+    services.generate_content = lambda **k: "Too short."
+    result = _draft(env, services)
+    run, calls = _runner({})
+    lines, log = _log()
+
+    assert autobuild.submit(result, run=run, log=log) == 1
+    assert calls == []
+    assert any("fix the warnings" in line for line in lines)
+
+
+def test_submit_stops_when_bucket_is_missing(env):
+    result = _draft(env, _services([]))
+    missing = "aws (account 11883): create -- would create\nDry-run (no --confirm passed): 1 account(s) would be changed."
+    run, calls = _runner({"onboard-client": (0, missing)})
+    lines, log = _log()
+
+    assert autobuild.submit(result, run=run, log=log) == 1
+    assert [c[0] for c in calls] == ["onboard-client"]
+    assert any(
+        "united-structural-systems -a" in line and "--confirm" in line for line in lines
+    )
+
+
+def test_submit_reports_a_factory_failure(env, tmp_path):
+    result = _draft(env, _services([]))
+    run, _calls = _runner(
+        {"onboard-client": (0, ONBOARD_OK), "all": (1, "[failed] ... 422")}
+    )
+    lines, log = _log()
+    assert autobuild.submit(result, run=run, log=log, manifest=tmp_path / "x") == 1
+    assert not any(".json --confirm" in line for line in lines)
+
+
+def test_submit_skips_bucket_check_for_unpinned_job(env, tmp_path):
+    result = _draft(env, _services([]))
+    del result.job["cloud_buckets"]
+    run, calls = _runner({"all": (0, "ok")})
+    _lines, log = _log()
+    assert autobuild.submit(result, run=run, log=log, manifest=tmp_path / "x") == 0
+    assert [c[0] for c in calls] == ["all"]
+
+
+def test_submit_lists_other_drafted_jobs(env, tmp_path):
+    result = _draft(env, _services([]))
+    manifest = tmp_path / "m.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                result.job_id: {"status": "drafted", "build_id": "1"},
+                "other-job": {"status": "drafted", "build_id": "2"},
+                "done-job": {"status": "published", "build_id": "3"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    run, _calls = _runner({"onboard-client": (0, ONBOARD_OK), "all": (0, "ok")})
+    lines, log = _log()
+    autobuild.submit(result, run=run, log=log, manifest=manifest)
+    text = "\n".join(lines)
+    assert "also generates these other drafted jobs" in text
+    assert "other-job (build 2)" in text
+    assert "done-job" not in text

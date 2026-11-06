@@ -440,6 +440,24 @@ the summary, then run the factory as usual. If any research or AI step
 fails, it stops and writes nothing. Keyword research and AI calls do cost
 DataForSEO/OpenAI credits on every run.
 
+**`--submit`** goes one step further, through rr_yacss_factory, and still
+never passes `--confirm`:
+
+1. If the job has warnings, it stops (fix them, then run the factory
+   command it prints).
+2. For a pinned bucket, `factory onboard-client` as a dry run: if the
+   bucket is missing on any account it stops and prints the
+   `onboard-client ... --confirm` command that creates it.
+3. `factory all -f jobs/<job-id>.json` without `--confirm`: creates a real
+   YACSS **draft** build (and checks the pinned folder is free), and YACSS
+   previews generate/publish -- nothing is generated or published.
+4. Prints the `all ... --confirm` command that finishes the build, and
+   lists any other drafted jobs that command would also generate (the
+   factory's generate step covers every drafted job in its manifest).
+
+Each `--submit` leaves a YACSS draft; a draft you don't finish is deleted
+in the YACSS web UI.
+
 ## For developers
 
 To run, double-click `run.cmd` (or run it from a terminal) -- it creates

@@ -35,6 +35,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **`autobuild.py --submit`**: after writing the job, stops on warnings,
+  checks the pinned bucket exists on every account (`factory onboard-client`
+  dry run; prints the create command if not), then runs `factory all`
+  WITHOUT `--confirm` (a real YACSS draft plus YACSS's generate/publish
+  preview) and prints the `--confirm` command that finishes the build,
+  listing any other drafted jobs it would also generate. Never confirms by
+  itself.
 - **`autobuild.py`: a Cloud Stack job from a client and a keyword, no
   app.** Takes client facts from the newest Diagram file in
   `client_yaml/<client>/` (or `--from`), applies the stack profile, picks

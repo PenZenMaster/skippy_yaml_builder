@@ -43,6 +43,8 @@ Comments:
 import argparse
 import json
 import re
+import shutil
+import subprocess
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -536,6 +538,126 @@ def summary(result: AutobuildResult) -> str:
     return "\n".join(lines)
 
 
+# --------------------------------------------------------------------------
+# --submit: hand the job to rr_yacss_factory (draft + preview only)
+# --------------------------------------------------------------------------
+
+FactoryRunner = Callable[[list[str]], tuple[int, str]]
+
+NOTHING_TO_CREATE = "Dry-run: nothing to create."
+
+
+def run_factory(args: list[str]) -> tuple[int, str]:
+    """Runs `npx tsx src/cli.ts <args>` in rr_yacss_factory (its current
+    source, not a possibly stale build) and returns (exit code, output),
+    with npm's own notice lines dropped."""
+    npx = shutil.which("npx")
+    if npx is None:
+        raise AutobuildError(
+            "npx not found -- Node.js is needed to run rr_yacss_factory"
+        )
+    if not FACTORY_DIR.is_dir():
+        raise AutobuildError(f"rr_yacss_factory not found at {FACTORY_DIR}")
+    try:
+        done = subprocess.run(
+            [npx, "tsx", "src/cli.ts", *args],
+            cwd=FACTORY_DIR,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=900,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise AutobuildError(f"rr_yacss_factory timed out: {' '.join(args)}") from e
+    output = "\n".join(
+        line
+        for line in (done.stdout + done.stderr).splitlines()
+        if not line.startswith("npm notice")
+    )
+    return done.returncode, output
+
+
+def factory_command(args: list[str]) -> str:
+    """The same factory call as a command the user can run themselves."""
+    quoted = " ".join(f'"{a}"' if " " in a else a for a in args)
+    return f"cd {FACTORY_DIR} && npx tsx src/cli.ts {quoted}"
+
+
+def other_drafted_jobs(job_id: str, manifest: Path = FACTORY_MANIFEST) -> list[str]:
+    """Manifest entries other than job_id with status "drafted". The
+    factory's generate step works through every drafted entry, not only
+    the jobs in the file passed, so these would be generated too by a
+    --confirm run."""
+    try:
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return sorted(
+        f"{key} (build {entry.get('build_id')})"
+        for key, entry in data.items()
+        if key != job_id
+        and isinstance(entry, dict)
+        and entry.get("status") == "drafted"
+    )
+
+
+def submit(
+    result: AutobuildResult,
+    run: FactoryRunner = run_factory,
+    log: Callable[[str], None] = print,
+    manifest: Path = FACTORY_MANIFEST,
+) -> int:
+    """Drafts the job in YACSS and previews generate/publish, never with
+    --confirm: (1) stops if the job has warnings; (2) for a pinned bucket,
+    runs `onboard-client` as a dry run and stops unless the bucket already
+    exists on every account; (3) runs `all -f <job>` without --confirm
+    (creates a real YACSS draft; generate/publish are YACSS previews only);
+    (4) prints the command that finishes the build. Returns an exit code."""
+    job = result.job
+    job_file = f"jobs/{result.job_json_path.name}"
+    all_args = ["all", "-f", job_file]
+
+    if result.warnings:
+        log("Not submitted: fix the warnings above first (in the app or the files),")
+        log("then draft it with:")
+        log(f"  {factory_command(all_args)}")
+        return 1
+
+    buckets = job.get("cloud_buckets") or {}
+    if buckets:
+        bucket = next(iter(buckets.values()))
+        onboard_args = ["onboard-client", bucket, "-a", ",".join(buckets)]
+        log(f"Checking bucket {bucket} on accounts {', '.join(buckets)} ...")
+        code, output = run(onboard_args)
+        log(output)
+        if code != 0 or NOTHING_TO_CREATE not in output:
+            log("Not submitted: the client bucket is missing or could not be checked")
+            log("on some account. To create the missing buckets, run:")
+            log(f"  {factory_command([*onboard_args, '--confirm'])}")
+            log("then draft the job with:")
+            log(f"  {factory_command(all_args)}")
+            return 1
+
+    log("Drafting in YACSS (no --confirm: nothing is generated or published) ...")
+    code, output = run(all_args)
+    log(output)
+    if code != 0:
+        log("The factory reported a failure (see above). The YACSS draft, if one")
+        log("was created, stays tracked in the factory manifest; once fixed, re-run:")
+        log(f"  {factory_command(all_args)}")
+        return 1
+
+    log("")
+    log("Drafted. Review the preview above, then generate and publish with:")
+    log(f"  {factory_command([*all_args, '--confirm'])}")
+    others = other_drafted_jobs(result.job_id, manifest)
+    if others:
+        log("Note: --confirm also generates these other drafted jobs:")
+        log("".join(f"  - {o}\n" for o in others).rstrip("\n"))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Draft a YACSS Cloud Stack job from a client and a keyword. "
@@ -557,6 +679,13 @@ def main(argv: list[str] | None = None) -> int:
         default=stack_profile.DEFAULT_PROFILE,
         help="stack profile",
     )
+    parser.add_argument(
+        "--submit",
+        action="store_true",
+        help="then draft it in YACSS through rr_yacss_factory and show the "
+        "generate/publish preview (never --confirm; prints the command that "
+        "finishes the build)",
+    )
     args = parser.parse_args(argv)
 
     from ai_content_generator import AiContentError
@@ -576,7 +705,14 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     print()
     print(summary(result))
-    return 0
+    if not args.submit:
+        return 0
+    print()
+    try:
+        return submit(result, log=lambda msg: print(msg, flush=True))
+    except AutobuildError as e:
+        print(f"Submit stopped: {e}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":
