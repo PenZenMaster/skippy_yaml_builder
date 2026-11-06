@@ -5,6 +5,19 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Stack profiles (`stack_profile.py`, `stack_profiles/default.yaml`).** A
+  profile holds the house YACSS build settings (template, tiers, cloud
+  accounts per tier, AI platform/model, tone, content mode, target-link
+  text) under the same field names as a client file.
+  `apply_profile(client_data, profile, keyword)` overrides the client
+  file's build settings with the profile's, fills `{client_name}` /
+  `{keyword}` in the link text, and sets the keyword; the result goes
+  straight into `job_export.build_job()`. A profile may only set build
+  settings; any other field is rejected. Headless only; the app is
+  unchanged. `.gitignore` now keeps `stack_profiles/*.yaml` tracked.
+
 ### Changed
 
 - **Job export logic moved out of the GUI into `job_export.py`.** The

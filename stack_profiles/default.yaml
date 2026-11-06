@@ -1,0 +1,33 @@
+# House stack profile -- the YACSS build settings every automated Cloud
+# Stack uses (see stack_profile.py). Field names are the same as in a saved
+# client .yaml. Every field listed here WINS over the client file's own
+# value; the client file supplies only client facts (name, address, phone,
+# cities, services, images, pinned bucket).
+#
+# Placeholders in text values, filled per build:
+#   {client_name}  the client file's "* Client Name"
+#   {keyword}      the keyword given for this build
+#
+# Tiers multiply: 1 + 1*1 + 1*1*6 + 1*1*6*1 = 14 pages.
+
+YACSS Build Type: Diagram
+YACSS Template: gardinbus-001
+YACSS Tier0 Pages: '1'
+YACSS Tiers (tier:pages, one per line): |-
+  1:1
+  2:6
+  3:1
+YACSS Diagram Tier Cloud Account IDs:
+  - tier: 1
+    cloud_account_ids: '25398'
+  - tier: 2
+    cloud_account_ids: 27504,25701,14308,11884,11883
+  - tier: 3
+    cloud_account_ids: '25701'
+YACSS AI Platform: openai
+YACSS AI Model: gpt-5
+YACSS Tone: ProfessionalWarm
+YACSS Content Generation Mode: Cheap (spun template, current default)
+YACSS Text Before Target Link: Visit
+YACSS Text Of Target Link: '{client_name}'
+YACSS Text After Target Link: to learn more about {keyword}.

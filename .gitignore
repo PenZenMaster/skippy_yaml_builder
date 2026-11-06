@@ -60,3 +60,5 @@ source/
 *.yaml
 *.yml
 client_yaml/
+# ...except the house stack profiles, which hold no client data
+!stack_profiles/*.yaml
