@@ -1,8 +1,15 @@
 ## Resume From
 
-Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-11-05_1459.md`
+Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-11-05_1621.md`
 Last session: 2026-11-05
 Branch: main | Version: 1.4.0 (tagged `v1.4.0`, pushed)
+
+**2026-11-05 (shutdown)**: v1.4.0 pinned export tested offline against
+the live USS job (build 133386): 20/21 fields identical, only `keyword`
+case differs (as typed vs hand-lowercased); passes the factory's own
+validate + resolve. Live `all --confirm` not run -- the tested job would
+overwrite build 133386. **Next:** export the user's new USS topic YAML
+(new folder + Job ID), review, run live; decide keyword case.
 
 **2026-11-05**: released **v1.4.0** (`1091fc5`): optional `YACSS Pinned
 Bucket` / `YACSS Stack Folder` fields. With a pinned bucket, Diagram
