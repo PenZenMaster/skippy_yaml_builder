@@ -41,6 +41,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+import job_export
 from ai_content_generator import (
     MIN_DIAGRAM_CONTENT_WORDS,
     AiContentError,
@@ -1563,26 +1564,7 @@ class YAMLForm(QMainWindow):
             bucket_label.setText("YACSS Bucket Keyword")
             bucket_widget.setPlaceholderText(self.placeholders["YACSS Bucket Keyword"])
 
-    @staticmethod
-    def _parse_tier_lines(text: str) -> list:
-        """Parses 'YACSS Tiers (tier:pages, one per line)' text into
-        [(tier_number, pages_or_None), ...] in order, skipping blank lines
-        (a real saved YAML file can fold this multi-line value with blank
-        lines between entries -- see save_yaml/load_yaml's plain-scalar
-        handling) and any line whose tier number isn't a plain integer."""
-        result = []
-        for line in text.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            tier_part, _, pages_part = line.partition(":")
-            try:
-                tier_num = int(tier_part.strip())
-            except ValueError:
-                continue
-            pages_part = pages_part.strip()
-            result.append((tier_num, pages_part if pages_part else None))
-        return result
+    _parse_tier_lines = staticmethod(job_export.parse_tier_lines)
 
     def _sync_diagram_tier_table(self):
         """Rebuilds diagram_tier_accounts_table's rows to match the tier
@@ -1690,89 +1672,17 @@ class YAMLForm(QMainWindow):
                 continue
             self.diagram_tier_accounts_table.setItem(row, 1, QTableWidgetItem(value))
 
-    @staticmethod
-    def _slugify(text: str) -> str:
-        """Mirrors rr_yacss_factory's src/jobs/loader.ts slugify() closely
-        enough for a readable job_id: lowercase, non-alphanumerics become
-        a single hyphen, no leading/trailing hyphens."""
-        slug = re.sub(r"[^a-z0-9]+", "-", text.strip().lower())
-        return slug.strip("-")
+    _slugify = staticmethod(job_export.slugify)
 
-    @staticmethod
-    def _content_to_html_paragraphs(text: str) -> str:
-        """Wraps blank-line-separated paragraphs (the format "YACSS
-        Diagram Content" is written in -- see that field's setup comment
-        and generate_diagram_content's prompt in ai_content_generator.py)
-        in <p> tags, e.g. "First.\\n\\nSecond." -> "<p>First.</p><p>Second.
-        </p>". A bare "\\n\\n"-separated string collapses to whitespace in
-        HTML and renders as one contiguous block once YACSS publishes it
-        -- confirmed live. A single newline inside a paragraph is treated
-        as a soft wrap, not a break, and joined with a space."""
-        paragraphs = re.split(r"\n\s*\n", text.strip())
-        return "".join(
-            f"<p>{' '.join(paragraph.split())}</p>"
-            for paragraph in paragraphs
-            if paragraph.strip()
-        )
+    _content_to_html_paragraphs = staticmethod(job_export.content_to_html_paragraphs)
 
-    def _resolve_job_id(self, default: str) -> str:
-        """Returns the "YACSS Job ID (override)" field's value if the user
-        filled it in, else the given auto-derived default -- shared by all
-        three _build_*_job methods. See that field's own setup comment in
-        self.inputs for why it exists."""
-        override = self.inputs["YACSS Job ID (override)"].text().strip()
-        return override or default
+    _extract_google_maps_embed_url = staticmethod(
+        job_export.extract_google_maps_embed_url
+    )
 
-    @staticmethod
-    def _extract_google_maps_embed_url(embed_code: str):
-        """Extracts the real src="..." URL from a pasted Google Maps
-        "Embed a map" <iframe> snippet ("Google Maps Embed Code" field,
-        Content tab) -- YACSS's real mymapsurl build field (live GET
-        /build-fields, "Embed" group -- present for diagram/masspage only,
-        confirmed absent for listicle/local_listicle) wants the bare URL,
-        not the surrounding <iframe width=/height=/style=/...> HTML.
-        Confirmed live 2026-09-14 against a real Google Maps Share ->
-        Embed a map -> Copy HTML capture (Salvo Metal Works): the URL is
-        standard Google "Embed a map" pb= format, not a Google "My Maps"
-        mid= URL -- that field's own build-fields label uses a misleading
-        mid= example. Returns (url, None) on a clean match, or ("",
-        warning) when the field has content that isn't a real <iframe
-        src="..."> snippet (e.g. a bare link was pasted instead)."""
-        text = embed_code.strip()
-        if not text:
-            return "", None
-        match = re.search(r'src="([^"]+)"', text)
-        if not match:
-            return (
-                "",
-                "Google Maps Embed Code doesn't look like a pasted <iframe> tag (no "
-                'src="..." found) -- use Google Maps\' Share -> Embed a map -> Copy '
-                "HTML, and paste the full HTML, not just a link",
-            )
-        return match.group(1), None
-
-    @staticmethod
-    def _compute_cloud_stack_total_pages(tier0_pages: int, tier_pages) -> int:
-        """Exact port of rr_yacss_factory's computeCloudStackTotalPages()
-        (src/jobs/schema.ts v1.11) -- tiers multiply, not add, and
-        tier0_pages is the multiplicative root of the whole pyramid, not
-        just an additive starting point. tier_pages is an iterable of each
-        tier's own page count, in tier order.
-
-        Corrected 2026-08-26: originally seeded running_product at 1
-        instead of tier0_pages, only ever confirmed live against a
-        tier0_pages=1 example where that bug is invisible (multiplying by
-        1 vs. not multiplying by it at all give the same result). A real
-        tier0_pages=3 Salvo Metal Works build (id 127455) confirmed live
-        that YACSS's real per-tier totals include tier0_pages in the
-        running product -- see rr_yacss_factory's schema.ts for the full
-        trail."""
-        running_product = tier0_pages
-        total = tier0_pages
-        for pages in tier_pages:
-            running_product *= pages
-            total += running_product
-        return total
+    _compute_cloud_stack_total_pages = staticmethod(
+        job_export.compute_cloud_stack_total_pages
+    )
 
     def _tier_pages_from_table(self) -> list:
         """Each row's page count (as an int, 0 if unparseable), in the same
@@ -2612,477 +2522,20 @@ class YAMLForm(QMainWindow):
         self.inputs["YACSS Diagram Content"].setPlainText(text)
 
     def _build_cloud_stack_job(self):
-        """Builds a rr_yacss_factory CloudStackJob dict from the current
-        form state, plus a list of human-readable warnings for anything
-        that looks incomplete or inconsistent (blank required fields, a
-        page_titles count that doesn't match the real multiplicative
-        total, a tier with no cloud accounts assigned). Warnings are
-        advisory -- export_job_json still writes the file, since the
-        real, authoritative validation is rr_yacss_factory's own job
-        schema (src/jobs/schema.ts) when the file is actually used, not
-        anything duplicated here. FAQs are sent via job["faqs"] (a plain
-        {question, answer} list) matching CloudStackJob.faqs directly --
-        an earlier version of this method sent them through
-        extra_fields as a bracketed faq_question[]/faq_answer[] pair,
-        which rr_yacss_factory's own memory confirms silently renders
-        ZERO FAQs on a live page (the working format was fixed there
-        2026-09-04; this export path had never been updated to match).
-        Logo URL (Content tab) maps to CloudStackJob.logo_image_url (the
-        stack's brand logo, uploaded through POST /uploads/image like the
-        hero image) -- it was collected but never exported before.
-        Content Image URLs (one per line, Content tab) maps to
-        CloudStackJob.content_image_urls -- a per-page image list that
-        rr_yacss_factory uploads and cycles across pages (1, 2, 3, 1, ...);
-        it is rejected there together with Content Image URL, which this
-        method flags as an advisory warning.
-        Hero Image URL/Content Image URL (Content tab) map straight to
-        CloudStackJob.hero_image_url/content_image_url -- both real,
-        confirmed-live fields (rr_yacss_factory's yacss-content-image-fix
-        memory) that this export path had simply never read before,
-        despite Hero Image URL already existing as a form field.
-        company["name"] defaults to "* Client Name" but prefers "Legal /
-        Company Name" when filled in -- a real client (Kilday Baxter) had
-        a distinct legal entity name ("Kilday Baxter & Associates") from
-        the brand name used everywhere else (page titles, target link
-        text), which this method used to flatten to a single value.
-        job["keyword"] is YACSS Bucket Keyword run through _slugify(),
-        since it becomes the real cloud bucket name and only lowercase
-        letters, digits and hyphens are safe there (underscores broke
-        real bucket creation on Backblaze/Azure/AWS for Salvo Metal
-        Works, 2026-08-26). The form field and the saved client YAML
-        keep whatever human-readable text was typed (e.g. "Business Tax
-        Consulting Services") -- only the exported job JSON is
-        hyphenated (e.g. "business-tax-consulting-services").
-        With YACSS Pinned Bucket set, the keyword names no bucket and is
-        exported as typed; the job instead gets `cloud_buckets` (that
-        bucket on every tier cloud account) and `directory` (YACSS Stack
-        Folder, or the slugified keyword when blank).
-        """
-        warnings = []
-
-        def require(value: str, label: str):
-            if not value.strip():
-                warnings.append(f"{label} is blank")
-
-        client_name = self.inputs["* Client Name"].text()
-        keyword = self.inputs["YACSS Bucket Keyword"].text()
-        template = self.inputs["YACSS Template"].currentText()
-        landing_url = self.inputs["* Website"].text()
-        target_link_text_before = self.inputs["YACSS Text Before Target Link"].text()
-        target_link_text = self.inputs["YACSS Text Of Target Link"].text()
-        target_link_text_after = self.inputs["YACSS Text After Target Link"].text()
-        tier0_pages_raw = self.inputs["YACSS Tier0 Pages"].text()
-
-        pinned_bucket = self.inputs["YACSS Pinned Bucket"].text().strip()
-        stack_folder = self.inputs["YACSS Stack Folder"].text().strip()
-
-        require(client_name, "* Client Name")
-        require(keyword, "YACSS Bucket Keyword")
-        bucket_keyword = self._slugify(keyword)
-        if pinned_bucket:
-            # Pinned: the keyword names no bucket, so only the folder
-            # fallback needs it to slugify into something.
-            if not stack_folder and keyword.strip() and not bucket_keyword:
-                warnings.append(
-                    f"YACSS Stack Folder is blank and YACSS Bucket Keyword "
-                    f"{keyword.strip()!r} has no letters or digits to derive "
-                    "a folder from -- fill in YACSS Stack Folder"
-                )
-        elif stack_folder:
-            warnings.append(
-                "YACSS Stack Folder is set but YACSS Pinned Bucket is blank -- "
-                "the folder is ignored (it only applies to a pinned bucket)"
-            )
-        if not pinned_bucket and keyword.strip() and not bucket_keyword:
-            warnings.append(
-                f"YACSS Bucket Keyword {keyword.strip()!r} has no letters or "
-                "digits once slugified, so it cannot become a real cloud "
-                "bucket name -- add some"
-            )
-        require(template, "YACSS Template")
-        require(landing_url, "* Website")
-        require(target_link_text_before, "YACSS Text Before Target Link")
-        require(target_link_text, "YACSS Text Of Target Link")
-        require(target_link_text_after, "YACSS Text After Target Link")
-
-        try:
-            tier0_pages = int(tier0_pages_raw.strip() or "0")
-        except ValueError:
-            warnings.append(
-                f"YACSS Tier0 Pages {tier0_pages_raw!r} is not a whole number -- treated as 0"
-            )
-            tier0_pages = 0
-
-        tier_pages = self._tier_pages_from_table()
-        tiers = []
-        for row in range(self.diagram_tier_accounts_table.rowCount()):
-            tier_item = self.diagram_tier_accounts_table.item(row, 0)
-            ids_item = self.diagram_tier_accounts_table.item(row, 1)
-            tier_num = tier_item.data(Qt.ItemDataRole.UserRole)
-            ids_text = ids_item.text().strip() if ids_item else ""
-            account_ids = [v.strip() for v in ids_text.split(",") if v.strip()]
-            if not account_ids:
-                warnings.append(f"Tier {tier_num} has no Cloud Account IDs assigned")
-            tiers.append(
-                {
-                    "tier": tier_num,
-                    "pages": tier_pages[row],
-                    "cloud_account_ids": account_ids,
-                }
-            )
-
-        page_titles = [
-            line.strip()
-            for line in self.inputs["YACSS Diagram Page Titles (one per line)"]
-            .toPlainText()
-            .splitlines()
-            if line.strip()
-        ]
-        expected_total = self._compute_cloud_stack_total_pages(
-            tier0_pages, [t["pages"] for t in tiers]
-        )
-        if len(page_titles) != expected_total:
-            warnings.append(
-                f"YACSS Diagram Page Titles has {len(page_titles)} line(s), but the "
-                f"real total page count (multiplicative, not additive) is {expected_total}"
-            )
-
-        content = self.inputs["YACSS Diagram Content"].toPlainText().strip()
-        if not content:
-            warnings.append("YACSS Diagram Content is blank")
-
-        company = {
-            "name": self.inputs["Legal / Company Name"].text().strip() or client_name,
-            "address": self.inputs["Street Address"].text(),
-            "city": self.inputs["City"].text(),
-            "state": self.inputs["State"].text(),
-            "zip": self.inputs["ZIP"].text(),
-            "phone": self.inputs["* Phone"].text(),
-            "email": self.inputs["Email"].text()
-            or self.inputs["Contact Email Address"].text(),
-        }
-        for field_name in ("address", "city", "state", "zip", "phone", "email"):
-            require(company[field_name], f"Company {field_name}")
-
-        job = {
-            "job_id": self._resolve_job_id(
-                self._slugify(client_name) or "cloud-stack-job"
-            ),
-            "type": "cloud_stack",
-            "keyword": (
-                keyword.strip() if pinned_bucket else bucket_keyword or keyword.strip()
-            ),
-            "name": client_name,
-            "template": template,
-            "landing_url": landing_url,
-        }
-        if pinned_bucket:
-            # rr_yacss_factory's schema requires a pin for every tier
-            # account; the same client bucket name is used on all of them.
-            account_ids = []
-            for tier in tiers:
-                for account_id in tier["cloud_account_ids"]:
-                    if account_id not in account_ids:
-                        account_ids.append(account_id)
-            job["cloud_buckets"] = {
-                account_id: pinned_bucket for account_id in account_ids
-            }
-            job["directory"] = stack_folder or bucket_keyword
-        job |= {
-            "target_link_text_before": target_link_text_before,
-            "target_link_text": target_link_text,
-            "target_link_text_after": target_link_text_after,
-            "company": company,
-            "tier0_pages": tier0_pages,
-            "tiers": tiers,
-            "page_titles": page_titles,
-            "content": self._content_to_html_paragraphs(content),
-        }
-
-        faqs = self._serialize_faq_rows()
-        if faqs:
-            job["faqs"] = faqs
-
-        hero_image_url = self.inputs["Hero Image URL"].text().strip()
-        if hero_image_url:
-            job["hero_image_url"] = hero_image_url
-        logo_url = self.inputs["Logo URL"].text().strip()
-        if logo_url:
-            job["logo_image_url"] = logo_url
-        content_image_url = self.inputs["Content Image URL"].text().strip()
-        if content_image_url:
-            job["content_image_url"] = content_image_url
-        content_image_urls = [
-            line.strip()
-            for line in self.inputs["Content Image URLs (one per line)"]
-            .toPlainText()
-            .splitlines()
-            if line.strip()
-        ]
-        if content_image_urls:
-            job["content_image_urls"] = content_image_urls
-            if content_image_url:
-                warnings.append(
-                    "Content Image URL and Content Image URLs are both filled in -- "
-                    "rr_yacss_factory rejects the combination; use one or the other"
-                )
-            if len(content_image_urls) > expected_total:
-                warnings.append(
-                    f"Content Image URLs has {len(content_image_urls)} line(s) but the "
-                    f"stack only has {expected_total} page(s) -- the extra images will never be used"
-                )
-
-        # content_mode omitted entirely for the cheap/default option --
-        # byte-for-byte the same export as before this field existed, so
-        # no real client job file changes behavior unless this is
-        # deliberately switched. See rr_yacss_factory's
-        # CloudStackJob.content_mode (src/jobs/types.ts v1.15) for what
-        # "ai_per_page" actually does server-side.
-        if (
-            self.inputs["YACSS Content Generation Mode"]
-            .currentText()
-            .startswith("AI-written")
-        ):
-            job["content_mode"] = "ai_per_page"
-            ai_platform = self.inputs["YACSS AI Platform"].currentText().strip()
-            ai_model = self.inputs["YACSS AI Model"].currentText().strip()
-            if ai_platform:
-                job["ai_platform"] = ai_platform
-            if ai_model:
-                job["ai_model"] = ai_model
-
-        maps_url, maps_warning = self._extract_google_maps_embed_url(
-            self.inputs["Google Maps Embed Code"].toPlainText()
-        )
-        if maps_warning:
-            warnings.append(maps_warning)
-        elif maps_url:
-            job.setdefault("extra_fields", {})["mymapsurl"] = maps_url
-
-        return job, warnings
+        """CloudStackJob dict + advisory warnings for the current form
+        state -- see job_export.build_cloud_stack_job, which holds the
+        logic so a headless caller gets the same job from a client file."""
+        return job_export.build_cloud_stack_job(self._collect_form_data())
 
     def _build_listicle_job(self):
-        """Builds a rr_yacss_factory ListicleJob dict (src/jobs/schema.ts's
-        listicleJobSchema) plus advisory warnings, mirroring
-        _build_cloud_stack_job's own pattern. job.keyword is the real SEO
-        topic ("YACSS Topic Keyword"); job.lsi_keyword is the EXISTING
-        Diagram build's own keyword whose bucket this publishes into
-        ("YACSS Bucket Keyword", relabeled for this type -- see
-        _update_build_type_ui and rr_yacss_factory's
-        bucketAndDirectoryForJob()). brand/competitor_urls/target_urls are
-        all optional in the real schema -- each is included only when the
-        user actually filled it in, same as cloud_stack's FAQ
-        extra_fields; brand itself requires BOTH name and url once used
-        (brandPlacementSchema), so a partial entry (only one of the two)
-        warns rather than silently sending an incomplete/rejected object.
-        job["name"] defaults to "* Client Name" but prefers "YACSS Listicle
-        Display Title" when filled in -- a real published listicle (Royal
-        Porta Johns' two septic-maintenance listicles) had its own display
-        title entirely unrelated to the client's own name, which this
-        method used to force job["name"] to always equal."""
-        warnings = []
-
-        def require(value: str, label: str):
-            if not value.strip():
-                warnings.append(f"{label} is blank")
-
-        client_name = self.inputs["* Client Name"].text()
-        display_title = (
-            self.inputs["YACSS Listicle Display Title"].text().strip() or client_name
-        )
-        topic_keyword = self.inputs["YACSS Topic Keyword"].text()
-        lsi_keyword = self.inputs["YACSS Bucket Keyword"].text()
-        template = self.inputs["YACSS Template"].currentText()
-        ai_platform = self.inputs["YACSS AI Platform"].currentText()
-        ai_model = self.inputs["YACSS AI Model"].currentText()
-        tone = self.inputs["YACSS Tone"].currentText()
-        language = self.inputs["YACSS Language"].text()
-        items_raw = self.inputs["YACSS Items Per Listicle"].text()
-
-        require(client_name, "* Client Name")
-        require(topic_keyword, "YACSS Topic Keyword")
-        require(lsi_keyword, "YACSS Bucket Keyword (target stack keyword)")
-        require(template, "YACSS Template")
-        require(ai_platform, "YACSS AI Platform")
-        require(ai_model, "YACSS AI Model")
-        require(tone, "YACSS Tone")
-        require(language, "YACSS Language")
-
-        try:
-            items_per_listicle = int(items_raw.strip() or "0")
-        except ValueError:
-            warnings.append(
-                f"YACSS Items Per Listicle {items_raw!r} is not a whole number -- treated as 0"
-            )
-            items_per_listicle = 0
-        if items_per_listicle <= 0:
-            warnings.append("YACSS Items Per Listicle must be a positive whole number")
-
-        cloud_account_ids = [
-            v for v in self._serialize_cloud_account_ids().split(",") if v
-        ]
-        if not cloud_account_ids:
-            warnings.append("No YACSS Cloud Account IDs selected")
-
-        job = {
-            # "-listicle" suffix: without it this collides with the same
-            # client's cloud_stack job_id (both slugify from the same
-            # client name) -- rr_yacss_factory's manifest is keyed by
-            # job_id, so a real Listicle export once silently inherited a
-            # prior Diagram build's stale cloud_urls under the same key.
-            # cloud_stack itself keeps its bare slug unchanged (see its own
-            # job_id line) since real published builds already exist under
-            # that exact job_id and renaming it would orphan them.
-            # "YACSS Job ID (override)", when filled in, wins outright over
-            # this auto-derived suffix -- see _resolve_job_id.
-            "job_id": self._resolve_job_id(
-                f"{self._slugify(client_name)}-listicle"
-                if client_name.strip()
-                else "listicle-job"
-            ),
-            "type": "listicle",
-            "keyword": topic_keyword,
-            "name": display_title,
-            "template": template,
-            "ai_platform": ai_platform,
-            "ai_model": ai_model,
-            "items_per_listicle": items_per_listicle,
-            "tone": tone,
-            "language": language,
-            "cloud_account_ids": cloud_account_ids,
-            "lsi_keyword": lsi_keyword,
-        }
-
-        brand_name = self.inputs["YACSS Brand Name"].text().strip()
-        brand_url = self.inputs["YACSS Brand URL"].text().strip()
-        brand_position_raw = self.inputs["YACSS Brand Position"].text().strip()
-        if brand_name or brand_url:
-            if not brand_name:
-                warnings.append(
-                    "YACSS Brand URL is set but YACSS Brand Name is blank -- brand omitted"
-                )
-            elif not brand_url:
-                warnings.append(
-                    "YACSS Brand Name is set but YACSS Brand URL is blank -- brand omitted"
-                )
-            else:
-                brand = {"name": brand_name, "url": brand_url}
-                if brand_position_raw:
-                    try:
-                        position = int(brand_position_raw)
-                        if position <= 0:
-                            raise ValueError
-                        brand["position"] = position
-                    except ValueError:
-                        warnings.append(
-                            f"YACSS Brand Position {brand_position_raw!r} is not a positive "
-                            "whole number -- omitted"
-                        )
-                job["brand"] = brand
-
-        competitor_urls = [
-            line.strip()
-            for line in self.inputs["YACSS Competitor URLs (one per line)"]
-            .toPlainText()
-            .splitlines()
-            if line.strip()
-        ]
-        if competitor_urls:
-            job["competitor_urls"] = competitor_urls
-
-        target_urls = [
-            line.strip()
-            for line in self.inputs["YACSS Target URLs (one per line)"]
-            .toPlainText()
-            .splitlines()
-            if line.strip()
-        ]
-        if target_urls:
-            job["target_urls"] = target_urls
-
-        return job, warnings
+        """ListicleJob dict + advisory warnings for the current form
+        state -- see job_export.build_listicle_job."""
+        return job_export.build_listicle_job(self._collect_form_data())
 
     def _build_masspage_job(self):
-        """Builds a rr_yacss_factory MasspageJob dict (src/jobs/schema.ts's
-        masspageJobSchema) plus advisory warnings -- see
-        _build_listicle_job's doc comment for the keyword/lsi_keyword
-        split, which applies identically here. page_titles/content reuse
-        the same "YACSS Diagram Page Titles"/"YACSS Diagram Content"
-        fields Diagram uses (their own setup comment already anticipated
-        this); unlike Diagram's page_titles, masspageJobSchema has no
-        multiplicative-total requirement, just at least one entry."""
-        warnings = []
-
-        def require(value: str, label: str):
-            if not value.strip():
-                warnings.append(f"{label} is blank")
-
-        client_name = self.inputs["* Client Name"].text()
-        topic_keyword = self.inputs["YACSS Topic Keyword"].text()
-        lsi_keyword = self.inputs["YACSS Bucket Keyword"].text()
-        template = self.inputs["YACSS Template"].currentText()
-        landing_url = self.inputs["* Website"].text()
-        ai_platform = self.inputs["YACSS AI Platform"].currentText()
-
-        require(client_name, "* Client Name")
-        require(topic_keyword, "YACSS Topic Keyword")
-        require(lsi_keyword, "YACSS Bucket Keyword (target stack keyword)")
-        require(template, "YACSS Template")
-        require(landing_url, "* Website")
-        require(ai_platform, "YACSS AI Platform")
-
-        page_titles = [
-            line.strip()
-            for line in self.inputs["YACSS Diagram Page Titles (one per line)"]
-            .toPlainText()
-            .splitlines()
-            if line.strip()
-        ]
-        if not page_titles:
-            warnings.append("YACSS Diagram Page Titles (one per line) is blank")
-
-        content = self.inputs["YACSS Diagram Content"].toPlainText().strip()
-        if not content:
-            warnings.append("YACSS Diagram Content is blank")
-
-        cloud_account_ids = [
-            v for v in self._serialize_cloud_account_ids().split(",") if v
-        ]
-        if not cloud_account_ids:
-            warnings.append("No YACSS Cloud Account IDs selected")
-
-        job = {
-            # "-masspage" suffix: see _build_listicle_job's own doc comment
-            # for why -- same collision risk against the client's
-            # cloud_stack job_id. "YACSS Job ID (override)" wins outright
-            # over this auto-derived suffix when filled in -- see
-            # _resolve_job_id.
-            "job_id": self._resolve_job_id(
-                f"{self._slugify(client_name)}-masspage"
-                if client_name.strip()
-                else "masspage-job"
-            ),
-            "type": "masspage",
-            "keyword": topic_keyword,
-            "name": client_name,
-            "template": template,
-            "landing_url": landing_url,
-            "page_titles": page_titles,
-            "content": self._content_to_html_paragraphs(content),
-            "ai_platform": ai_platform,
-            "cloud_account_ids": cloud_account_ids,
-            "lsi_keyword": lsi_keyword,
-        }
-
-        maps_url, maps_warning = self._extract_google_maps_embed_url(
-            self.inputs["Google Maps Embed Code"].toPlainText()
-        )
-        if maps_warning:
-            warnings.append(maps_warning)
-        elif maps_url:
-            job.setdefault("extra_fields", {})["mymapsurl"] = maps_url
-
-        return job, warnings
+        """MasspageJob dict + advisory warnings for the current form
+        state -- see job_export.build_masspage_job."""
+        return job_export.build_masspage_job(self._collect_form_data())
 
     def export_job_json(self):
         """Writes a rr_yacss_factory job file (a JSON array containing one
@@ -3172,13 +2625,7 @@ class YAMLForm(QMainWindow):
         only at export time (never inside _build_cloud_stack_job, which
         stays offline) and only for Cloud Stack jobs, the only type that
         carries these fields."""
-        items = []
-        if job.get("hero_image_url"):
-            items.append(("Hero Image URL", job["hero_image_url"]))
-        if job.get("logo_image_url"):
-            items.append(("Logo URL", job["logo_image_url"]))
-        for i, url in enumerate(job.get("content_image_urls", []), start=1):
-            items.append((f"Content Image URLs line {i}", url))
+        items = job_export.image_check_items(job)
         if not items:
             return []
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
@@ -3485,18 +2932,12 @@ class YAMLForm(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load YAML file:\n{e}")
 
-    def save_yaml(self):
-        missing = [c for c, d in self.city_data.items() if not d.get("embed_code")]
-        if missing:
-            reply = QMessageBox.question(
-                self,
-                "Missing Embeds",
-                f"{len(missing)} cities are missing embeds. Add them now?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            )
-            if reply == QMessageBox.StandardButton.Yes:
-                return
-        data = {}
+    def _collect_form_data(self) -> dict:
+        """The whole form as the client-file dict save_yaml writes (same
+        keys, same shapes). Also the input to job_export's builders, so an
+        Export Job JSON from the form and a headless export of the saved
+        file get identical data. No dialogs, no side effects."""
+        data: dict = {}
         for k, w in self.inputs.items():
             if isinstance(w, QTextEdit):
                 text = w.toPlainText()
@@ -3516,10 +2957,27 @@ class YAMLForm(QMainWindow):
         data["YACSS Cloud Account IDs (comma separated)"] = (
             "" if is_diagram else self._serialize_cloud_account_ids()
         )
-        tier_account_rows = (
+        data["YACSS Diagram Tier Cloud Account IDs"] = (
             self._serialize_diagram_tier_accounts() if is_diagram else []
         )
-        data["YACSS Diagram Tier Cloud Account IDs"] = tier_account_rows
+        data["FAQ Questions & Answers"] = self._serialize_faq_rows()
+        data["city_embeds"] = self.city_data
+        return data
+
+    def save_yaml(self):
+        missing = [c for c, d in self.city_data.items() if not d.get("embed_code")]
+        if missing:
+            reply = QMessageBox.question(
+                self,
+                "Missing Embeds",
+                f"{len(missing)} cities are missing embeds. Add them now?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                return
+        data = self._collect_form_data()
+        is_diagram = self.inputs["YACSS Build Type"].currentText() == "Diagram"
+        tier_account_rows = data["YACSS Diagram Tier Cloud Account IDs"]
         if is_diagram:
             # Real bug found live (Salvo Metal Works chimney_shrouds.yaml,
             # 2026-08-29): "YACSS Tiers (tier:pages, one per line)" is free
@@ -3545,8 +3003,6 @@ class YAMLForm(QMainWindow):
                     "breaks. Fix the tier numbers before saving.",
                 )
                 return
-        data["FAQ Questions & Answers"] = self._serialize_faq_rows()
-        data["city_embeds"] = self.city_data
         file_name, _ = QFileDialog.getSaveFileName(
             self, "Save YAML File", "", "YAML Files (*.yaml *.yml)"
         )

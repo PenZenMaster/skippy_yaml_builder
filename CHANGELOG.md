@@ -5,6 +5,22 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Job export logic moved out of the GUI into `job_export.py`.** The
+  Cloud Stack / Listicle / Masspage job builders now take the same dict a
+  saved client `.yaml` holds, so a job can be built without opening the app
+  (`job_export.build_job(yaml.safe_load(...))`). Export Job JSON in the app
+  works exactly as before: it gathers the form into that dict
+  (`_collect_form_data`, now shared with Save YAML) and calls the same
+  function. A file saved before per-tier cloud accounts existed gets its
+  flat account ids on every tier, same as opening it in the app. Known
+  difference: the headless path uses file values as written, while opening
+  a file in the app first reformats phone numbers to `(xxx) xxx-xxxx` and
+  matches dropdown values case-insensitively (e.g. tone `persuasive` ->
+  `Persuasive`). 41 of 45 real client files export identically both ways;
+  the other 4 differ only in those values.
+
 ## [1.4.0] - 2026-11-05
 
 ### Added
