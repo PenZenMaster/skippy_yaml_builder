@@ -278,6 +278,12 @@ REQUIREMENTS:
    service, city, benefit, or use case) -- never repeat the same topic twice.
 4. Each title is 40-70 characters, natural and clickable, not keyword-stuffed.
 5. Do not put the business name in every title -- vary it naturally.
+6. NO INVENTED CLAIMS: never use "leading", "trusted", "premier", "best",
+   "top", "#1", "expert"/"experts", "affordable", "cheap", "quality",
+   "guaranteed", "award-winning" or any other promise about the business,
+   and never mention cost, price or "near me".
+7. Only name services from the Services/products list above -- never a
+   service that is not on it.
 
 OUTPUT FORMAT:
 Return ONLY the {title_count} titles, one per line. No preamble, no

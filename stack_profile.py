@@ -18,10 +18,13 @@ Created Date:
 2026-11-05
 
 Last Modified Date:
-2026-11-05
+2026-11-06
 
 Comments:
 - v1.00 Initial implementation (default profile: stack_profiles/default.yaml).
+- v1.01 {service} placeholder: the topic of the page the backlink points at
+  (defaults to the keyword), so the link sentence reads naturally for
+  keywords like "foundation repair contractor".
 """
 
 from collections.abc import Mapping
@@ -85,7 +88,7 @@ def load_profile(path: str | Path = DEFAULT_PROFILE) -> dict[str, Any]:
 
 
 def _fill(value: Any, placeholders: Mapping[str, str]) -> Any:
-    """Fills {client_name}/{keyword} in strings, recursing into lists and
+    """Fills {client_name}/{keyword}/{service} in strings, recursing into lists and
     dicts. Plain replace (not str.format), so any other braces are left
     alone."""
     if isinstance(value, str):
@@ -100,16 +103,25 @@ def _fill(value: Any, placeholders: Mapping[str, str]) -> Any:
 
 
 def apply_profile(
-    client_data: Mapping[str, Any], profile: Mapping[str, Any], keyword: str
+    client_data: Mapping[str, Any],
+    profile: Mapping[str, Any],
+    keyword: str,
+    service: str | None = None,
 ) -> dict[str, Any]:
     """A copy of client_data with every profile field overriding the
     client's own value, placeholders filled, and "YACSS Bucket Keyword" set
-    to this build's keyword. client_data itself is not changed."""
+    to this build's keyword. `service` fills {service} -- the topic of the
+    page the backlink points at -- and defaults to the keyword.
+    client_data itself is not changed."""
     keyword = keyword.strip()
     if not keyword:
         raise ValueError("A keyword is required to apply a stack profile")
     client_name = str(client_data.get("* Client Name") or "").strip()
-    placeholders = {"client_name": client_name, "keyword": keyword}
+    placeholders = {
+        "client_name": client_name,
+        "keyword": keyword,
+        "service": (service or "").strip() or keyword,
+    }
     merged = dict(client_data)
     for field, value in profile.items():
         merged[field] = _fill(value, placeholders)

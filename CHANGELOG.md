@@ -32,8 +32,26 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   pattern.
 - **AI-suggested FAQ questions avoid owner-only topics** (prices, estimates,
   warranties, licensing, insurance, hours, staff, years in business).
+- **Page titles no longer promise prices or make claims.** Research titles
+  about cost, price, "how much" or "near me" are skipped (the content may
+  not state prices); the AI title prompt forbids "leading", "trusted",
+  "premier", "best", "affordable" and similar, cost/"near me", and any
+  service not in the client's list; autobuild drops AI titles that still
+  do. Found on the 2026-11-06 seven-stack USS batch ("Helical Piers Price",
+  "Geneva's Leading Solution", a crawl space encapsulation page).
+- **Link sentence names the landing page's service.** The stack profile's
+  after-text is now "to learn more about {service}.", where {service} is
+  the landing page's topic read from its address (/foundation-repair/ ->
+  "foundation repair"), not the raw keyword ("...about foundation repair
+  contractor.").
 
 ### Added
+
+- **`autobuild.py --landing-url` / `--link-topic`**: point a stack's
+  backlink at the client page for that keyword's service (for this stack
+  only; the client file is unchanged), and override the topic named in the
+  link sentence. Used 2026-11-06 for seven USS stacks (builds
+  133409-133415), each linking to its own service page.
 
 - **`autobuild.py --submit`**: after writing the job, stops on warnings,
   checks the pinned bucket exists on every account (`factory onboard-client`

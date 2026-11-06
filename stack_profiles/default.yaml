@@ -7,6 +7,9 @@
 # Placeholders in text values, filled per build:
 #   {client_name}  the client file's "* Client Name"
 #   {keyword}      the keyword given for this build
+#   {service}      the topic of the page the backlink points at, from its
+#                  address (/foundation-repair/ -> "foundation repair"), or
+#                  autobuild's --link-topic; the keyword if neither is known
 #
 # Tiers multiply: 1 + 1*1 + 1*1*6 + 1*1*6*1 = 14 pages.
 
@@ -30,4 +33,4 @@ YACSS Tone: ProfessionalWarm
 YACSS Content Generation Mode: Cheap (spun template, current default)
 YACSS Text Before Target Link: Visit
 YACSS Text Of Target Link: '{client_name}'
-YACSS Text After Target Link: to learn more about {keyword}.
+YACSS Text After Target Link: to learn more about {service}.

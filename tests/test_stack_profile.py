@@ -109,3 +109,22 @@ def test_other_braces_are_left_alone():
         _client(), {"YACSS Text After Target Link": "{a|b} {keyword}"}, "kw"
     )
     assert merged["YACSS Text After Target Link"] == "{a|b} kw"
+
+
+def test_service_placeholder_names_the_landing_page_topic():
+    profile = {"YACSS Text After Target Link": "to learn more about {service}."}
+    merged = stack_profile.apply_profile(
+        _client(), profile, "foundation repair contractor", "foundation repair"
+    )
+    assert (
+        merged["YACSS Text After Target Link"]
+        == "to learn more about foundation repair."
+    )
+    # Without a service it falls back to the keyword.
+    merged = stack_profile.apply_profile(_client(), profile, "underpinning")
+    assert merged["YACSS Text After Target Link"] == "to learn more about underpinning."
+
+
+def test_default_profile_link_sentence_uses_service():
+    profile = stack_profile.load_profile()
+    assert profile["YACSS Text After Target Link"] == "to learn more about {service}."

@@ -34,10 +34,13 @@ Created Date:
 2026-11-05
 
 Last Modified Date:
-2026-11-05
+2026-11-06
 
 Comments:
 - v1.00 Initial implementation.
+- v1.01 --submit, --landing-url, --link-topic ({service} in the link
+  sentence); research titles about cost/price/"near me" skipped and AI
+  titles making claims ("leading", "trusted", "affordable"...) dropped.
 """
 
 import argparse
@@ -46,7 +49,7 @@ import re
 import shutil
 import subprocess
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -72,6 +75,24 @@ FAQ_FIELD = "FAQ Questions & Answers"
 SOURCE_KEYWORD = "keyword"
 SOURCE_RESEARCH = "research"
 SOURCE_AI = "AI"
+
+# Research titles the page content cannot deliver on: content may not state
+# prices, so a "... Cost" page promises what it never gives, and "near me"
+# reads badly as a page title (live 2026-11-06: "Underpinning Cost",
+# "Helical Piers Price", "How Much Is Underpinning For A Trailer").
+_SKIP_RESEARCH_TITLE = re.compile(
+    r"\b(cost|costs|price|prices|pricing|how much|cheap|near me)\b", re.I
+)
+
+# Backstop for AI titles (the prompt already forbids these): claims the
+# business cannot back up, plus the same cost/near-me wording. Live
+# 2026-11-06: "Geneva's Leading Solution", "Barrington's Premier ...",
+# "Lake Zurich's Best Choice", "Affordable Waterproofing Solutions".
+_CLAIM_TITLE = re.compile(
+    r"\b(leading|trusted|premier|best|top|#1|experts?|affordable|cheap|quality|"
+    r"guaranteed?|award|cost|costs|price|prices|near me)\b|#1",
+    re.I,
+)
 
 
 class AutobuildError(Exception):
@@ -259,7 +280,9 @@ def pick_research_titles(keyword: str, clusters: list[dict], needed: int) -> lis
     its meaningful words (title_words) already appear in one title picked
     before it, the keyword included. E.g. with the keyword "commercial
     foundation repair", "Foundation Repair Near Me" is skipped, and after
-    "Foundation Repair Specialists", "Foundation Specialist" is too."""
+    "Foundation Repair Specialists", "Foundation Specialist" is too.
+    Titles about cost, price or "near me" (_SKIP_RESEARCH_TITLE) are skipped
+    as well."""
     picked = [title_words(keyword)]
     titles: list[str] = []
     for cluster in sorted(
@@ -270,12 +293,91 @@ def pick_research_titles(keyword: str, clusters: list[dict], needed: int) -> lis
         if cluster.get("candidate_page_title_flagged"):
             continue
         title = str(cluster.get("candidate_page_title") or "").strip()
+        if _SKIP_RESEARCH_TITLE.search(title):
+            continue
         words = title_words(title)
         if not words or any(words <= earlier for earlier in picked):
             continue
         picked.append(words)
         titles.append(title)
     return titles
+
+
+def link_topic_from_url(url: str, fallback: str) -> str:
+    """The topic of a landing page from its address: the last path segment
+    with hyphens/underscores as spaces ("https://x.com/foundation-repair/"
+    -> "foundation repair"); `fallback` for a site root or anything without
+    a readable segment."""
+    path = re.sub(r"^https?://[^/]+", "", url.strip()).split("?")[0].split("#")[0]
+    segments = [s for s in path.split("/") if s]
+    if not segments:
+        return fallback
+    topic = re.sub(r"\.[a-z0-9]+$", "", segments[-1], flags=re.I)
+    topic = " ".join(re.split(r"[-_]+", topic)).strip().lower()
+    return topic if re.search(r"[a-z]", topic) else fallback
+
+
+def make_titles(
+    keyword: str,
+    data: Mapping[str, Any],
+    needed: int,
+    business_name: str,
+    services: "Services",
+    log: Callable[[str], None] = lambda _msg: None,
+) -> tuple[list[str], list[str]]:
+    """`needed` page titles and their sources: the keyword first, then the
+    top usable keyword-research clusters (pick_research_titles), then AI for
+    the rest. AI titles that repeat an earlier title or make claims
+    (_CLAIM_TITLE) are dropped; AI is asked for a few spare titles and
+    called up to 3 times. Raises AutobuildError if it still falls short."""
+    from keyword_research_api import local_location_tokens
+
+    category = str(data.get("* Business Category") or "").strip()
+    cities = _lines(data.get("* Target Cities (one per line)"))
+    services_list = _lines(data.get("* Services (one per line)"))
+
+    log("Keyword research (DataForSEO)...")
+    clusters = services.fetch_clusters(
+        [keyword], local_location_tokens(str(data.get("State") or ""), cities)
+    )
+    titles = [title_case(keyword)]
+    sources = [SOURCE_KEYWORD]
+    research = pick_research_titles(keyword, clusters, needed - 1)
+    titles += research
+    sources += [SOURCE_RESEARCH] * len(research)
+    shortfall = needed - len(titles)
+    if shortfall <= 0:
+        return titles, sources
+
+    log(f"Research gave {len(research)} usable title(s); AI writes {shortfall}")
+    seen = {_norm(t) for t in titles}
+    ai_titles: list[str] = []
+    for _attempt in range(3):
+        # The AI prompt treats its first title as the money page; ask for
+        # that one plus a few spares and drop it, since title 1 is set.
+        generated = services.generate_titles(
+            business_name=business_name,
+            business_category=category,
+            target_keyword=keyword,
+            target_cities=cities,
+            services=services_list,
+            title_count=shortfall - len(ai_titles) + 3,
+        )
+        for title in generated[1:]:
+            if len(ai_titles) >= shortfall:
+                break
+            if _norm(title) in seen or _CLAIM_TITLE.search(title):
+                continue
+            seen.add(_norm(title))
+            ai_titles.append(title)
+        if len(ai_titles) >= shortfall:
+            break
+    if len(ai_titles) < shortfall:
+        raise AutobuildError(
+            f"Needed {needed} page titles but got only "
+            f"{len(titles) + len(ai_titles)} after research and AI"
+        )
+    return titles + ai_titles, sources + [SOURCE_AI] * len(ai_titles)
 
 
 def title_words(text: str) -> set[str]:
@@ -306,6 +408,8 @@ def draft_stack(
     keyword: str,
     *,
     from_file: Path | None = None,
+    landing_url: str | None = None,
+    link_topic: str | None = None,
     profile_path: Path = stack_profile.DEFAULT_PROFILE,
     client_root: Path = CLIENT_YAML_DIR,
     jobs_dir: Path = FACTORY_JOBS_DIR,
@@ -314,12 +418,23 @@ def draft_stack(
     log: Callable[[str], None] = lambda _msg: None,
 ) -> AutobuildResult:
     """Runs every step and returns the drafted client data and job without
-    writing anything (see write_outputs). Raises AutobuildError (or the
-    research/AI module's own error) on any failure."""
+    writing anything (see write_outputs). `landing_url`, when given,
+    replaces the client file's "* Website" for this stack only -- the page
+    its backlink points at (e.g. the client's own page for this keyword's
+    service). `link_topic` fills the profile's {service} (the link sentence's
+    topic); by default it is read from the landing page's address
+    (link_topic_from_url). Raises AutobuildError (or the research/AI
+    module's own error) on any failure."""
     services = services or Services()
     keyword = " ".join(keyword.split())
     if not keyword:
         raise AutobuildError("A keyword is required")
+    if landing_url is not None:
+        landing_url = landing_url.strip()
+        if not re.match(r"^https?://[^\s/]+\.[^\s]+$", landing_url):
+            raise AutobuildError(
+                f"--landing-url {landing_url!r} is not a full http(s) URL"
+            )
 
     client_dir = find_client_dir(client, client_root)
     source = Path(from_file) if from_file else newest_diagram_file(client_dir)
@@ -336,7 +451,11 @@ def draft_stack(
             "cloud-stack-generator's .env (../cloud-stack-generator/.env)"
         )
 
-    data = stack_profile.apply_profile(client_data, profile, keyword)
+    website = landing_url or str(client_data.get("* Website") or "")
+    service = (link_topic or "").strip() or link_topic_from_url(website, keyword)
+    data = stack_profile.apply_profile(client_data, profile, keyword, service)
+    if landing_url:
+        data["* Website"] = landing_url
     for phone_field in ("* Phone", "Broker Phone"):
         if phone_field in data:
             data[phone_field] = tidy_phone(data[phone_field])
@@ -368,47 +487,7 @@ def draft_stack(
     cities = _lines(data.get("* Target Cities (one per line)"))
     services_list = _lines(data.get("* Services (one per line)"))
 
-    # Page titles: keyword first, then research, then AI top-up.
-    from keyword_research_api import local_location_tokens
-
-    log("Keyword research (DataForSEO)...")
-    clusters = services.fetch_clusters(
-        [keyword], local_location_tokens(str(data.get("State") or ""), cities)
-    )
-    titles = [title_case(keyword)]
-    sources = [SOURCE_KEYWORD]
-    research = pick_research_titles(keyword, clusters, needed - 1)
-    titles += research
-    sources += [SOURCE_RESEARCH] * len(research)
-    shortfall = needed - len(titles)
-    if shortfall > 0:
-        log(f"Research gave {len(research)} usable title(s); AI writes {shortfall}")
-        seen = {_norm(t) for t in titles}
-        ai_titles: list[str] = []
-        for _attempt in range(2):
-            # The AI prompt treats its first title as the money page; ask
-            # for one extra and drop it, since title 1 is already set.
-            generated = services.generate_titles(
-                business_name=business_name,
-                business_category=category,
-                target_keyword=keyword,
-                target_cities=cities,
-                services=services_list,
-                title_count=shortfall + 1,
-            )
-            for title in generated[1:]:
-                if len(ai_titles) < shortfall and _norm(title) not in seen:
-                    seen.add(_norm(title))
-                    ai_titles.append(title)
-            if len(ai_titles) >= shortfall:
-                break
-        if len(ai_titles) < shortfall:
-            raise AutobuildError(
-                f"Needed {needed} page titles but got only "
-                f"{len(titles) + len(ai_titles)} after research and AI"
-            )
-        titles += ai_titles
-        sources += [SOURCE_AI] * len(ai_titles)
+    titles, sources = make_titles(keyword, data, needed, business_name, services, log)
     data[PAGE_TITLES_FIELD] = titles
 
     log("Writing spun content (AI)...")
@@ -674,6 +753,16 @@ def main(argv: list[str] | None = None) -> int:
         "--from", dest="from_file", type=Path, help="client file to use"
     )
     parser.add_argument(
+        "--landing-url",
+        help="page the stack's backlink points at, for this stack only "
+        "(default: the client file's * Website)",
+    )
+    parser.add_argument(
+        "--link-topic",
+        help='topic named in the link sentence, e.g. "foundation repair" '
+        "(default: read from the landing page's address)",
+    )
+    parser.add_argument(
         "--profile",
         type=Path,
         default=stack_profile.DEFAULT_PROFILE,
@@ -696,6 +785,8 @@ def main(argv: list[str] | None = None) -> int:
             args.client,
             args.keyword,
             from_file=args.from_file,
+            landing_url=args.landing_url,
+            link_topic=args.link_topic,
             profile_path=args.profile,
             log=lambda msg: print(msg, flush=True),
         )

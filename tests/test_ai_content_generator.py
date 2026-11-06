@@ -567,3 +567,26 @@ def test_generate_diagram_content_respects_higher_env_token_cap(monkeypatch):
 
     acg.generate_diagram_content(**_content_kwargs())
     assert {c["max_tokens"] for c in calls} == {9000}
+
+
+def test_page_title_prompt_forbids_claims_and_unlisted_services(monkeypatch):
+    """Live 2026-11-06 the titles said "Leading", "Premier", "Best Choice",
+    "Affordable" and named crawl space encapsulation, which is not a listed
+    service."""
+    _configure(monkeypatch)
+    fake_client = _install_fake_client(monkeypatch, content="A\nB\n")
+    acg.generate_diagram_page_titles(
+        business_name="Acme Plumbing",
+        business_category="Plumbing",
+        target_keyword="drain cleaning",
+        target_cities=["Dallas"],
+        services=["Drain Cleaning"],
+        title_count=2,
+    )
+    prompt = " ".join(
+        fake_client.completions.calls[0]["messages"][1]["content"].split()
+    )
+    assert "NO INVENTED CLAIMS" in prompt
+    for word in ('"leading"', '"premier"', '"best"', '"affordable"'):
+        assert word in prompt
+    assert "Only name services from the Services/products list" in prompt

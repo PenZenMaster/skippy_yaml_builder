@@ -153,15 +153,16 @@ def test_full_draft_with_research_and_ai_top_up(env):
     assert job["page_titles"][1] == "Helical Repair Work"
     assert "Lowes Foundation Repair" not in job["page_titles"]
     assert result.title_sources == ["keyword"] + ["research"] * 10 + ["AI"] * 3
-    # AI asked for one extra (its first title is a money page) and it was dropped.
-    assert calls["title_calls"][0]["title_count"] == 4
+    # AI asked for its money-page title (dropped) plus 2 spares beyond the 3.
+    assert calls["title_calls"][0]["title_count"] == 6
     assert job["page_titles"][11:] == ["AI Title 1", "AI Title 2", "AI Title 3"]
 
     assert job["template"] == "gardinbus-001"
     assert job["directory"] == "commercial-foundation-repair"
     assert set(job["cloud_buckets"].values()) == {"united-structural-systems"}
     assert job["target_link_text"] == "United Structural Systems Of Illinois, Inc"
-    assert job["target_link_text_after"] == f"to learn more about {KEYWORD}."
+    # {service} comes from the client website's page: /foundation-repair/.
+    assert job["target_link_text_after"] == "to learn more about foundation repair."
     assert job["company"]["phone"] == "(847) 382-2882"
     assert job["job_id"] == result.job_id
     assert len(job["faqs"]) == 15
@@ -256,6 +257,33 @@ def test_from_file_overrides_newest(env, tmp_path):
     assert result.job["target_link_text"] == "Acme Mixed Case"
 
 
+def test_landing_url_overrides_the_backlink_target(env):
+    calls = {}
+    url = "https://uss.example/basement-and-crawlspace-waterproofing/"
+    result = _draft(env, _services([], calls), landing_url=f"  {url} ")
+
+    assert result.job["landing_url"] == url
+    assert result.client_data["* Website"] == url
+    # FAQ answers may only use facts on file; the website fact follows too.
+    assert calls["faqs"]["company_facts"]["Website"] == url
+    # The client file itself keeps its own website.
+    saved = yaml.safe_load(env["diagram"].read_text(encoding="utf-8"))
+    assert saved["* Website"] == "https://uss.example/foundation-repair/"
+
+
+def test_landing_url_defaults_to_the_client_website(env):
+    result = _draft(env, _services([]))
+    assert result.job["landing_url"] == "https://uss.example/foundation-repair/"
+
+
+@pytest.mark.parametrize(
+    "bad", ["uss.example/page", "ftp://uss.example/x", "https://", ""]
+)
+def test_landing_url_must_be_a_full_http_url(env, bad):
+    with pytest.raises(autobuild.AutobuildError, match="landing-url"):
+        _draft(env, _services([]), landing_url=bad)
+
+
 def test_find_client_dir(env):
     assert (
         autobuild.find_client_dir("united-structural-systems", env["root"])
@@ -347,10 +375,79 @@ def test_near_duplicate_research_titles_are_skipped():
             ]
         )
     ]
+    # "...Near Me" titles are skipped outright since 2026-11-06.
     assert autobuild.pick_research_titles(KEYWORD, clusters, 13) == [
         "Foundation Repair Specialists",
-        "Foundation Repair Companies Near Me",
     ]
+
+
+def test_cost_and_near_me_research_titles_are_skipped():
+    """Research titles from the 2026-11-06 USS batch the content cannot
+    deliver on (it may not state prices)."""
+    titles = [
+        "Underpinning Cost",
+        "How Much Is Underpinning For A Trailer",
+        "Helical Piers Price",
+        "Foundation Repair Contractors Near Me",
+        "Crawl Space Inspection",
+    ]
+    clusters = [_cluster(t, 1000 - i) for i, t in enumerate(titles)]
+    assert autobuild.pick_research_titles("underpinning", clusters, 13) == [
+        "Crawl Space Inspection"
+    ]
+
+
+def test_ai_titles_with_claims_are_dropped_and_topped_up(env):
+    calls = {}
+    services = _services([], calls)
+    batches = iter(
+        [
+            ["money page", "Geneva's Leading Solution", "Plain Title One"]
+            + ["Barrington's Premier Repair", "Affordable Waterproofing"],
+            ["money page"] + [f"Plain Title {i}" for i in range(2, 20)],
+        ]
+    )
+    services.generate_titles = lambda **k: next(batches)
+    result = _draft(env, services)
+    titles = result.job["page_titles"]
+    assert len(titles) == 14
+    assert not any(
+        word in t for t in titles for word in ("Leading", "Premier", "Affordable")
+    )
+    assert "Plain Title One" in titles
+
+
+@pytest.mark.parametrize(
+    "url, expected",
+    [
+        ("https://uss.example/foundation-repair/", "foundation repair"),
+        (
+            "https://uss.example/basement-and-crawlspace-waterproofing/",
+            "basement and crawlspace waterproofing",
+        ),
+        ("https://uss.example/services/helical_piers.html?x=1", "helical piers"),
+        ("https://uss.example/", "fallback"),
+        ("https://uss.example", "fallback"),
+    ],
+)
+def test_link_topic_from_url(url, expected):
+    assert autobuild.link_topic_from_url(url, "fallback") == expected
+
+
+def test_link_sentence_names_the_landing_page_topic(env):
+    result = _draft(
+        env,
+        _services([]),
+        landing_url="https://uss.example/resistance-and-micro-pile-installation/",
+    )
+    assert result.job["target_link_text_after"] == (
+        "to learn more about resistance and micro pile installation."
+    )
+
+
+def test_link_topic_override(env):
+    result = _draft(env, _services([]), link_topic="  underpinning  ")
+    assert result.job["target_link_text_after"] == "to learn more about underpinning."
 
 
 def test_research_titles_stop_at_needed():
