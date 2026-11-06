@@ -1,8 +1,21 @@
 ## Resume From
 
-Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-11-05_1621.md`
-Last session: 2026-11-05
-Branch: main | Version: 1.4.0 (tagged `v1.4.0`, pushed)
+Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-11-06_0250.md`
+Last session: 2026-11-05/06
+Branch: main | Version: 1.4.0 (tagged `v1.4.0`) + unreleased autobuild work, pushed
+
+**2026-11-06 (shutdown)**: **autobuild** -- a Cloud Stack job from just a
+client and a keyword, no GUI. New `job_export.py` (export logic out of the
+GUI, `1e761d4`), `stack_profile.py` + `stack_profiles/default.yaml` (house
+build settings, `4eb08de`), `autobuild.py` (`dfabb72`), then a live-tested
+quality round (`69c3e74`): near-duplicate titles skipped, content written
+plain then spun (900-920 rendered words in 2 calls, was 577-722), no
+invented claims, first-person grounded FAQs. USS "commercial foundation
+repair" draft job is in `rr_yacss_factory/jobs/` (untracked, valid, not
+built). No YACSS resources created. 324/324 tests. **Next:** Phase 4 --
+factory `onboard-client` dry run (is `united-structural-systems` on
+25398?), `folders`, `all` dry run, then `--confirm` on the user's
+go-ahead; tighten soft team-skill claims and spin density.
 
 **2026-11-05 (shutdown)**: v1.4.0 pinned export tested offline against
 the live USS job (build 133386): 20/21 fields identical, only `keyword`
