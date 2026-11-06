@@ -418,9 +418,15 @@ Drafts a whole Diagram (Cloud Stack) job without opening the app:
   house template, tiers, cloud accounts, AI model or tone.
 - **Page titles**: title 1 is the keyword; the rest are the top keyword-
   research clusters by search volume (flagged brand/off-target ones
-  skipped); AI writes any that research can't supply.
+  skipped); AI writes any that research can't supply. A research title is
+  also skipped when all its meaningful words already appear in a title
+  picked before it (words like near, me, best are ignored; plurals count
+  as singular) -- so "Foundation Repair Near Me" never sits next to the
+  keyword "commercial foundation repair".
 - **Content** (spun, AI) and **15 FAQs** (Google People Also Ask first, AI
-  to make up the rest, answers grounded in the client's facts).
+  to make up the rest, answers grounded in the client's facts). Google
+  shows no People Also Ask box for many narrow commercial keywords; the
+  summary then says which searches came back empty.
 - **Link text**: an ALL-CAPS client name is shown with capitalised words.
 - **Job id**: `<client-folder>-<keyword>`, with `-02`, `-03`... added if a
   job file or rr_yacss_factory manifest entry already uses it. A pinned

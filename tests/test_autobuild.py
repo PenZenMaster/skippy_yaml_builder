@@ -122,8 +122,24 @@ def _draft(env, services, **kwargs):
     )
 
 
+TOPICS = [
+    "Helical",
+    "Pier",
+    "Slab",
+    "Crack",
+    "Basement",
+    "Crawlspace",
+    "Waterproofing",
+    "Underpinning",
+    "Leveling",
+    "Drainage",
+]
+
+
 def test_full_draft_with_research_and_ai_top_up(env):
-    clusters = [_cluster(f"Research Title {i}", 1000 - i) for i in range(10)]
+    clusters = [
+        _cluster(f"{word} Repair Work", 1000 - i) for i, word in enumerate(TOPICS)
+    ]
     clusters.append(_cluster("Lowes Foundation Repair", 5000, flagged=True))
     clusters.append(_cluster("commercial foundation repair", 9000))  # = keyword
     calls = {}
@@ -134,7 +150,7 @@ def test_full_draft_with_research_and_ai_top_up(env):
     job = result.job
     assert len(job["page_titles"]) == 14
     assert job["page_titles"][0] == "Commercial Foundation Repair"
-    assert job["page_titles"][1] == "Research Title 0"
+    assert job["page_titles"][1] == "Helical Repair Work"
     assert "Lowes Foundation Repair" not in job["page_titles"]
     assert result.title_sources == ["keyword"] + ["research"] * 10 + ["AI"] * 3
     # AI asked for one extra (its first title is a money page) and it was dropped.
@@ -297,3 +313,61 @@ def test_summary_marks_ai_titles_and_faqs(env):
         "united-structural-systems (pinned), folder commercial-foundation-repair/"
         in text
     )
+    assert "Google showed no People Also Ask" not in text
+
+
+def test_summary_explains_when_google_has_no_questions(env):
+    services = _services([])
+    services.generate_faqs = lambda **k: FaqGenerationResult(
+        requested=15,
+        items=[FaqItem(f"AI Q{i}?", "A.", SOURCE_AI) for i in range(15)],
+        searched_phrases=[KEYWORD, f"{KEYWORD} Wheaton"],
+    )
+    result = _draft(env, services)
+    assert result.faq_searched == [KEYWORD, f"{KEYWORD} Wheaton"]
+    assert (
+        "Google showed no People Also Ask questions for: "
+        f"{KEYWORD}; {KEYWORD} Wheaton" in autobuild.summary(result)
+    )
+
+
+def test_near_duplicate_research_titles_are_skipped():
+    """The research titles from the 2026-11-05 live USS run, in volume
+    order. Covered-word duplicates go; distinct ones stay."""
+    clusters = [
+        _cluster(title, 1000 - i)
+        for i, title in enumerate(
+            [
+                "Foundation Repair Near Me",
+                "Foundation Repair Specialists",
+                "Foundation Specialist",
+                "Foundation Repair Companies Near Me",
+                "Foundation Repair Specialists Near Me",
+                "Best Foundation Repair Company Near Me",
+            ]
+        )
+    ]
+    assert autobuild.pick_research_titles(KEYWORD, clusters, 13) == [
+        "Foundation Repair Specialists",
+        "Foundation Repair Companies Near Me",
+    ]
+
+
+def test_research_titles_stop_at_needed():
+    clusters = [_cluster(f"{w} Repair Work", 100) for w in TOPICS]
+    assert len(autobuild.pick_research_titles(KEYWORD, clusters, 3)) == 3
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        (
+            "Best Foundation Repair Companies Near Me",
+            {"foundation", "repair", "company"},
+        ),
+        ("Foundation Specialists", {"foundation", "specialist"}),
+        ("Near Me", set()),
+    ],
+)
+def test_title_words(text, expected):
+    assert autobuild.title_words(text) == expected

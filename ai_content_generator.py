@@ -69,16 +69,40 @@ DEFAULT_MODEL = "gpt-4o-mini"
 DEFAULT_MAX_TOKENS = 2000
 DEFAULT_TEMPERATURE = 0.7
 
-# Diagram Content length contract. The floor is on RENDERED words (spintax
-# resolved), and the prompt asks for a higher target so a model that lands a
-# little short of what it was asked for still clears the floor. Spintax
-# alternatives inflate the raw token count well past the rendered word count,
-# hence the token floor (an .env OPENAI_MAX_TOKENS below it would truncate
-# the draft mid-sentence).
+# Diagram Content length contract. The floor is on RENDERED words: spintax
+# resolved to the SHORTEST option of every {a|b|c} group. Asking for spun
+# text directly never reached it (live 2026-11-05: 722 and 658 words with
+# gpt-4o-mini, 577 with gpt-4o) because a model counts every word it writes,
+# alternatives included. So the content is made in two steps: a PLAIN
+# article whose length is checked in code (>= DIAGRAM_CONTENT_PROMPT_MIN_
+# WORDS, aiming for DIAGRAM_CONTENT_TARGET_WORDS in a fixed paragraph
+# structure), then a spin pass that keeps each original phrase as one option
+# and only adds alternatives at least as long. Spun text inflates the raw
+# token count well past the rendered word count, hence the token floor (an
+# .env OPENAI_MAX_TOKENS below it would truncate the draft mid-sentence).
 MIN_DIAGRAM_CONTENT_WORDS = 750
-DIAGRAM_CONTENT_TARGET_WORDS = 900
-DIAGRAM_CONTENT_MAX_ATTEMPTS = 3
+DIAGRAM_CONTENT_PROMPT_MIN_WORDS = 900
+DIAGRAM_CONTENT_TARGET_WORDS = 1000
+DIAGRAM_CONTENT_PARAGRAPHS = 11
+DIAGRAM_CONTENT_PARAGRAPH_WORDS = "85-100"
+DIAGRAM_CONTENT_MAX_ATTEMPTS = 3  # plain-article calls
+DIAGRAM_SPIN_MAX_ATTEMPTS = 2  # spin calls
 DIAGRAM_CONTENT_MIN_MAX_TOKENS = 6000
+
+# No-invented-claims rule for Diagram Content (same spirit as the FAQ
+# answers' _FAQ_GROUNDING_RULES). Live 2026-11-05 the plain article claimed
+# "years of experience" and "the highest quality materials ... to guarantee
+# long-lasting results" -- neither is in the client facts, and the content
+# goes on every page of the stack.
+_CONTENT_CLAIM_RULES = """NO INVENTED CLAIMS: the only facts you may state about the business
+   are its name, category, location, service area and the services listed
+   above. Never state or imply years in business or experience, guarantees
+   or warranties, "highest quality" or other quality promises, being
+   "leading", "trusted", "top-rated" or "the best", licences, insurance or
+   certifications, awards, reviews, prices, free estimates or
+   consultations, response times, statistics, or staff counts or
+   qualifications. General facts about the trade (how the work is done,
+   why it matters) are fine when written as general information."""
 
 # FAQ answer generation: one initial call plus up to two retries, each retry
 # asking only for the questions still blank.
@@ -283,17 +307,27 @@ def generate_diagram_content(
     (cloud_stack) build's YACSS Diagram Content field -- YACSS's cheap
     "spin content1" mode (auto_content: "2", per rr_yacss_factory's
     cloudStackJobToBuildPayload) spins whatever spintax this contains, so
-    the prompt asks for real {option1|option2|option3} spintax groups
-    throughout, matching the style of every real client content field
-    already written by hand for rr_yacss_factory (e.g. its Salvo Metal
-    Works job file).
+    the result carries real {option1|option2|option3} spintax groups
+    throughout, matching the style of the real client content fields
+    written by hand for rr_yacss_factory (e.g. its Salvo Metal Works job).
 
-    The result is at least MIN_DIAGRAM_CONTENT_WORDS words once spintax is
-    resolved (count_rendered_words). A draft that falls short is retried,
-    up to DIAGRAM_CONTENT_MAX_ATTEMPTS calls in total, with feedback on how
-    short it was; if every attempt is short the longest draft is returned
-    rather than raised, so the caller can show the real count and let the
-    user regenerate or extend it by hand.
+    Two steps (see the length-contract comment at the top of this module):
+
+    1. A PLAIN article (no spintax), DIAGRAM_CONTENT_PARAGRAPHS paragraphs
+       aiming for DIAGRAM_CONTENT_TARGET_WORDS. Its word count is checked in
+       code; under DIAGRAM_CONTENT_PROMPT_MIN_WORDS it is rewritten with
+       feedback, up to DIAGRAM_CONTENT_MAX_ATTEMPTS calls, keeping the
+       longest.
+    2. A spin pass over that article: each original phrase stays as the
+       first option and every alternative is at least as long, so the
+       rendered length (shortest option of every group) stays near the
+       plain article's. A spun result under MIN_DIAGRAM_CONTENT_WORDS, or
+       one that renders much shorter than the plain article, is spun again
+       (DIAGRAM_SPIN_MAX_ATTEMPTS calls); the longest spun version is kept.
+
+    If every attempt is short, the longest result is returned rather than
+    raised, so the caller can show the real count (count_rendered_words) and
+    let the user regenerate or extend it by hand.
 
     Raises:
         AiContentError: on any failure to reach/parse the API response.
@@ -301,62 +335,106 @@ def generate_diagram_content(
     cities_text = _format_list(target_cities, "its general service area")
     services_text = _format_list(services, "its core services")
     location = ", ".join(part for part in (city, state) if part.strip())
+    max_tokens = max(
+        _get_max_tokens(DEFAULT_MAX_TOKENS), DIAGRAM_CONTENT_MIN_MAX_TOKENS
+    )
 
-    base_prompt = f"""Write body content for a "{target_keyword}" supporting page for
+    # Step 1: the plain article, length checked in code.
+    article_prompt = f"""Write body content for a "{target_keyword}" supporting page for
 {business_name}, a {business_category} business{f" based in {location}" if location else ""}
 serving {cities_text}.
 
 Services/products to reference naturally: {services_text}.
 
 REQUIREMENTS:
-1. LENGTH: at least {MIN_DIAGRAM_CONTENT_WORDS} words once the spintax is
-   resolved (each {{a|b|c}} group counts as ONE of its options -- count the
-   shortest). Aim for about {DIAGRAM_CONTENT_TARGET_WORDS} words across 8-12
-   paragraphs, professional and specific -- no generic filler. Cover
-   different angles (services, process, benefits, service area, why choose
-   this business) instead of padding or repeating sentences.
-2. Write using SPINTAX syntax so this single field can auto-spin unique
-   variations per page: wrap 2-3 natural word/phrase alternatives in curly
-   braces separated by pipes, e.g.
-   "{{specializes in|is a leader in|has built its reputation on}}". Use
-   spintax generously -- most sentences should contain at least one
-   {{a|b|c}} group.
+1. LENGTH: at least {DIAGRAM_CONTENT_PROMPT_MIN_WORDS} words, aiming for about
+   {DIAGRAM_CONTENT_TARGET_WORDS}. Use exactly this structure:
+   {DIAGRAM_CONTENT_PARAGRAPHS} paragraphs of {DIAGRAM_CONTENT_PARAGRAPH_WORDS} words each, each on a
+   different angle, in this order: (1) introduction to {target_keyword},
+   (2)-(6) one paragraph per key service or service group, (7) how the
+   process works, (8) benefits for the customer, (9) the service area,
+   (10) why choose this business -- using only its services, service area and
+   location, (11) a closing call to action.
+   Professional and specific -- no generic filler, no repeated sentences.
+2. Plain prose only: no spintax or curly braces, no markdown, no HTML, no
+   headings, no title. Separate paragraphs with a blank line.
 3. Naturally mention the service area and the services/products listed above.
-4. Plain paragraph text only -- no markdown, no HTML, no headings. Separate
-   paragraphs with a blank line.
-5. Do not include a title or heading -- body text only.
+4. {_CONTENT_CLAIM_RULES}
 
 OUTPUT FORMAT:
 Return ONLY the content. No preamble, no explanations."""
-
-    system_message = (
-        "You are a professional SEO copywriter who writes spun "
-        "(spintax) web copy for local-business supporting websites."
-    )
-    max_tokens = max(
-        _get_max_tokens(DEFAULT_MAX_TOKENS), DIAGRAM_CONTENT_MIN_MAX_TOKENS
+    article_system = (
+        "You are a professional SEO copywriter who writes detailed, specific "
+        "web copy for local-business supporting websites."
     )
 
-    best = ""
-    best_words = -1
-    prompt = base_prompt
+    article = ""
+    article_words = -1
+    prompt = article_prompt
     for _ in range(DIAGRAM_CONTENT_MAX_ATTEMPTS):
         draft = _call_openai(
-            system_message=system_message, prompt=prompt, max_tokens=max_tokens
+            system_message=article_system, prompt=prompt, max_tokens=max_tokens
         )
         words = count_rendered_words(draft)
-        if words > best_words:
-            best, best_words = draft, words
-        if words >= MIN_DIAGRAM_CONTENT_WORDS:
+        if words > article_words:
+            article, article_words = draft, words
+        if words >= DIAGRAM_CONTENT_PROMPT_MIN_WORDS:
             break
         prompt = (
-            base_prompt
-            + f"\n\nIMPORTANT: a previous draft was only {words} words when "
-            f"rendered, below the required minimum of "
-            f"{MIN_DIAGRAM_CONTENT_WORDS}. Write a fuller, longer version of "
-            f"about {DIAGRAM_CONTENT_TARGET_WORDS} words -- more paragraphs "
-            "and more detail, not repetition."
+            article_prompt
+            + f"\n\nIMPORTANT: a previous draft was only {words} words, below "
+            f"the required minimum of {DIAGRAM_CONTENT_PROMPT_MIN_WORDS}. Write "
+            f"all {DIAGRAM_CONTENT_PARAGRAPHS} paragraphs at "
+            f"{DIAGRAM_CONTENT_PARAGRAPH_WORDS} words each, about "
+            f"{DIAGRAM_CONTENT_TARGET_WORDS} words in total -- more detail, "
+            "not repetition."
         )
+
+    # Step 2: spin it without shortening it.
+    spin_prompt = f"""Add SPINTAX to the article below so it can auto-spin unique
+variations per page.
+
+RULES:
+1. Wrap natural word/phrase alternatives in curly braces separated by pipes,
+   e.g. "{{provides|offers|delivers}}". Most
+   sentences should contain at least one {{a|b|c}} group, with 2-3 options
+   per group.
+2. The FIRST option of every group is the article's original wording,
+   exactly as written.
+3. Every other option must have AT LEAST as many words as the original
+   wording -- never shorter.
+4. Do not remove, shorten, merge or reorder any sentence or paragraph, and
+   keep every fact as written. Only add alternatives.
+5. Keep the blank lines between paragraphs. No markdown, no HTML, no
+   headings, no nested braces.
+6. An alternative must never add a claim the original wording does not make:
+   no "leading", "trusted", "renowned", "top-notch", "experienced", "expert",
+   "guaranteed" or similar unless the original already says it.
+
+OUTPUT FORMAT:
+Return ONLY the spun article. No preamble, no explanations.
+
+ARTICLE:
+{article.strip()}"""
+    spin_system = (
+        "You are a professional SEO copywriter who adds spintax variations to "
+        "existing web copy without changing its length or meaning."
+    )
+
+    # A spin pass that drops text renders well below the plain article;
+    # 95% of it (and the floor) is what a faithful pass should reach.
+    good_enough = max(MIN_DIAGRAM_CONTENT_WORDS, int(article_words * 0.95))
+    best = ""
+    best_words = -1
+    for _ in range(DIAGRAM_SPIN_MAX_ATTEMPTS):
+        spun = _call_openai(
+            system_message=spin_system, prompt=spin_prompt, max_tokens=max_tokens
+        )
+        words = count_rendered_words(spun)
+        if words > best_words:
+            best, best_words = spun, words
+        if words >= good_enough:
+            break
     return best
 
 
@@ -391,17 +469,39 @@ def _format_client_facts(
 _FAQ_GROUNDING_RULES = """GROUNDING RULES (these override everything else):
 - The ONLY facts you may state about the business are those under CLIENT
   FACTS. Anything else about this specific business is unknown to you.
-- Never state or imply: prices or price ranges, hours of operation, years in
+- Never state or imply: prices or price ranges, free or paid estimates,
+  quotes, inspections or consultations, hours of operation, years in
   business, licences, insurance, certifications, guarantees or warranties,
-  response times, statistics, awards, reviews, staff names or counts, brands
-  carried, or that the business offers a service that is not in CLIENT FACTS.
+  response times, statistics, awards, reviews, staff names or counts, staff
+  qualifications, training, experience or skill, promises about quality or
+  results ("high-quality", "we assure you"), brands carried, or that the
+  business offers a service that is not in CLIENT FACTS. This holds even
+  when writing as "we": "we do provide free estimates" and "our technicians
+  are experienced" are both forbidden claims.
 - General industry knowledge that is true of the trade everywhere (how a
   process works, what factors affect a job) is allowed when written as
   general information, not as a claim about this business.
-- When the question needs a fact you do not have, answer helpfully in
-  general terms and point the reader to contacting the business (for
-  example: "The cost depends on the scope of the job, so contact
-  {business_name} for a quote."). Do not guess a number."""
+- When the question needs a fact you do not have, give useful general
+  information first, then invite the reader to contact us -- never refuse,
+  and never say a fact is "not specified", "not provided" or "unknown", that
+  we "cannot disclose" it, or that we "do not provide information" about
+  it. Do not guess a number. Examples of the right pattern:
+  Q: Do you offer free estimates?
+  A: Every project is different, so the first step is understanding what
+  you need and the conditions on site. Contact us and we'll go over
+  estimates and next steps for your project.
+  Q: Are your technicians licensed and insured?
+  A: It is always worth confirming a contractor's licensing and insurance
+  before work begins. Contact us and we'll answer your questions about our
+  team and your project."""
+
+_FAQ_VOICE_RULES = """VOICE (these answers appear on {business_name}'s own pages):
+- Write as the business itself, in the first person plural: "we", "our
+  team", "us", "our services".
+- Never refer to the business in the third person: no "they", "them",
+  "their", "the company" or "the business" for {business_name}, and do not
+  start an answer with the business name.
+- Speak to the reader as "you"."""
 
 
 def _parse_json_object(content: str) -> dict:
@@ -474,7 +574,8 @@ def generate_faq_answers(
     facts_text = _format_client_facts(
         business_name, business_category, target_cities, services, company_facts
     )
-    grounding = _FAQ_GROUNDING_RULES.format(business_name=business_name)
+    grounding = _FAQ_GROUNDING_RULES
+    voice = _FAQ_VOICE_RULES.format(business_name=business_name)
     answers = [""] * len(questions)
 
     for attempt in range(FAQ_ANSWER_MAX_ATTEMPTS):
@@ -490,6 +591,8 @@ CLIENT FACTS:
 
 {grounding}
 
+{voice}
+
 QUESTIONS:
 {numbered_questions}
 
@@ -497,7 +600,7 @@ REQUIREMENTS:
 1. Answer EVERY question listed, using the question's own number.
 2. Each answer is 2-4 sentences of plain prose: no markdown, no headings, no
    bullet points, and do not repeat the question text.
-3. Follow the GROUNDING RULES exactly.
+3. Follow the GROUNDING RULES and the VOICE rules exactly.
 
 OUTPUT FORMAT:
 Return ONLY a JSON object of this exact shape, with no other text:
@@ -505,9 +608,10 @@ Return ONLY a JSON object of this exact shape, with no other text:
         try:
             content = _call_openai(
                 system_message=(
-                    "You write accurate, customer-facing FAQ answers for "
-                    "local-service businesses and never invent facts about "
-                    "the business."
+                    "You write accurate, customer-facing FAQ answers in a "
+                    "local-service business's own first-person voice "
+                    '("we", "our team") and never invent facts about the '
+                    "business."
                 ),
                 prompt=prompt,
                 max_tokens=max(500, len(pending) * FAQ_ANSWER_TOKENS_PER_QUESTION),
@@ -569,7 +673,12 @@ REQUIREMENTS:
    the services or the trade itself, phrased the way a customer would say it.
 3. Do not assert any fact about the business inside a question (no prices,
    guarantees, hours, years in business, or awards).
-4. No two questions may ask the same thing.
+4. Do not ask about anything only the business owner could answer: prices
+   or costs, estimates or quotes, warranties or guarantees, licensing,
+   insurance or certifications, hours, staff, or how long the business has
+   operated. Ask about the services, the problems they solve, how the work
+   is done, and what customers should know or look out for.
+5. No two questions may ask the same thing.
 
 OUTPUT FORMAT:
 Return ONLY a JSON object of this exact shape, with no other text:

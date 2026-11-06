@@ -253,6 +253,43 @@ def test_generate_faq_answers_prompt_is_grounded_in_client_facts(monkeypatch):
         assert forbidden in flat_prompt
 
 
+def test_generate_faq_answers_prompt_asks_for_first_person_voice(monkeypatch):
+    _configure(monkeypatch)
+    fake_client = _install_fake_client(monkeypatch, content=_answers_json((1, "A.")))
+    acg.generate_faq_answers(**_faq_kwargs(questions=["Are you licensed?"]))
+    call = fake_client.completions.calls[0]
+    prompt = " ".join(call["messages"][1]["content"].split())
+    assert "VOICE" in prompt
+    assert '"we", "our team"' in prompt
+    assert "Never refer to the business in the third person" in prompt
+    assert '"not specified"' in prompt
+    # Live 2026-11-05 the first-person voice alone produced "We do provide
+    # free estimates" and "we cannot disclose": both are now named.
+    assert "free or paid estimates" in prompt
+    assert "staff qualifications" in prompt
+    assert '"cannot disclose"' in prompt
+    assert "Contact us and we'll go over estimates" in prompt
+    # The examples are first person, not "contact Acme Plumbing".
+    assert "contact Acme Plumbing" not in prompt
+    assert "first-person voice" in call["messages"][0]["content"]
+    # FAQs stay on the general model, not the content model.
+    assert call["model"] == acg.DEFAULT_MODEL
+
+
+def test_generate_faq_questions_avoids_owner_only_topics(monkeypatch):
+    _configure(monkeypatch)
+    fake_client = _install_fake_client(monkeypatch, content='{"questions": ["Q?"]}')
+    acg.generate_faq_questions(
+        "Acme Plumbing", "Plumbing", ["Dallas"], ["Drain Cleaning"], [], 1
+    )
+    prompt = " ".join(
+        fake_client.completions.calls[0]["messages"][1]["content"].split()
+    )
+    assert "only the business owner could answer" in prompt
+    for topic in ("estimates or quotes", "warranties or guarantees", "licensing"):
+        assert topic in prompt
+
+
 def test_generate_faq_answers_retries_only_the_blank_questions(monkeypatch):
     _configure(monkeypatch)
     fake_client = _install_fake_client(
@@ -405,77 +442,128 @@ def _content_kwargs():
     )
 
 
-def _sequenced_call_openai(monkeypatch, drafts):
+def _words(n):
+    return " ".join(["word"] * n)
+
+
+def _spun(n):
+    """Spun text whose shortest rendering is n words."""
+    return " ".join(["{word|longer phrase}"] * n)
+
+
+def _two_step(monkeypatch, articles, spins):
+    """Fake _call_openai: plain-article calls get `articles` in turn, spin
+    calls get `spins` in turn (the last one repeats)."""
     calls = []
 
     def fake(system_message, prompt, max_tokens):
-        calls.append({"prompt": prompt, "max_tokens": max_tokens})
-        return drafts[min(len(calls), len(drafts)) - 1]
+        step = "spin" if "spintax" in system_message else "article"
+        calls.append({"step": step, "prompt": prompt, "max_tokens": max_tokens})
+        source = spins if step == "spin" else articles
+        count = sum(1 for c in calls if c["step"] == step)
+        return source[min(count, len(source)) - 1]
 
     monkeypatch.setattr(acg, "_call_openai", fake)
     return calls
 
 
-def test_generate_diagram_content_stops_when_first_draft_meets_minimum(monkeypatch):
+def test_content_is_a_plain_article_then_a_spin_pass(monkeypatch):
     _configure(monkeypatch)
-    long_draft = " ".join(["word"] * acg.MIN_DIAGRAM_CONTENT_WORDS)
-    calls = _sequenced_call_openai(monkeypatch, [long_draft])
+    article = _words(1000)
+    calls = _two_step(monkeypatch, [article], [_spun(1000)])
 
-    assert acg.generate_diagram_content(**_content_kwargs()) == long_draft
-    assert len(calls) == 1
-    assert str(acg.MIN_DIAGRAM_CONTENT_WORDS) in calls[0]["prompt"]
+    assert acg.generate_diagram_content(**_content_kwargs()) == _spun(1000)
+    assert [c["step"] for c in calls] == ["article", "spin"]
+    article_prompt = " ".join(calls[0]["prompt"].split())
+    assert f"at least {acg.DIAGRAM_CONTENT_PROMPT_MIN_WORDS} words" in article_prompt
+    assert f"{acg.DIAGRAM_CONTENT_PARAGRAPHS} paragraphs" in article_prompt
+    assert "no spintax" in article_prompt
+    spin_prompt = " ".join(calls[1]["prompt"].split())
+    assert "AT LEAST as many words as the original" in spin_prompt
+    assert (
+        "FIRST option of every group is the article's original wording" in spin_prompt
+    )
+    assert article in calls[1]["prompt"]
 
 
-def test_generate_diagram_content_retries_short_draft_with_feedback(monkeypatch):
+def test_content_prompts_forbid_invented_claims(monkeypatch):
+    """Live 2026-11-05 the article claimed "years of experience" and to
+    "guarantee long-lasting results"; both prompts now rule that out."""
     _configure(monkeypatch)
-    short_draft = " ".join(["word"] * 100)
-    long_draft = " ".join(["word"] * 800)
-    calls = _sequenced_call_openai(monkeypatch, [short_draft, long_draft])
+    calls = _two_step(monkeypatch, [_words(1000)], [_spun(1000)])
+    acg.generate_diagram_content(**_content_kwargs())
 
-    assert acg.generate_diagram_content(**_content_kwargs()) == long_draft
-    assert len(calls) == 2
-    assert "only 100 words" in calls[1]["prompt"]
+    article_prompt = " ".join(calls[0]["prompt"].split())
+    assert "NO INVENTED CLAIMS" in article_prompt
+    for claim in ("years in business or experience", "guarantees", '"highest quality"'):
+        assert claim in article_prompt
+    assert "why choose this business -- using only its services" in article_prompt
+
+    spin_prompt = " ".join(calls[1]["prompt"].split())
+    assert "must never add a claim the original wording does not make" in spin_prompt
+    assert "is a leader in" not in spin_prompt
 
 
-def test_generate_diagram_content_returns_longest_after_max_attempts(monkeypatch):
+def test_short_plain_article_is_rewritten_with_feedback(monkeypatch):
     _configure(monkeypatch)
-    drafts = [
-        " ".join(["word"] * 100),
-        " ".join(["word"] * 300),
-        " ".join(["word"] * 200),
-    ]
-    calls = _sequenced_call_openai(monkeypatch, drafts)
+    calls = _two_step(monkeypatch, [_words(600), _words(950)], [_spun(950)])
 
-    assert acg.generate_diagram_content(**_content_kwargs()) == drafts[1]
-    assert len(calls) == acg.DIAGRAM_CONTENT_MAX_ATTEMPTS
+    acg.generate_diagram_content(**_content_kwargs())
+    assert [c["step"] for c in calls] == ["article", "article", "spin"]
+    retry = " ".join(calls[1]["prompt"].split())
+    assert "only 600 words" in retry
+    assert "required minimum of 900" in retry
+    assert _words(950) in calls[2]["prompt"]
 
 
-def test_generate_diagram_content_counts_rendered_not_raw_words(monkeypatch):
-    """A draft padded with spintax alternatives has a high raw word count
-    but a low rendered count, and must be treated as short."""
+def test_longest_plain_article_is_spun_after_max_attempts(monkeypatch):
     _configure(monkeypatch)
+    articles = [_words(700), _words(850), _words(800)]
+    calls = _two_step(monkeypatch, articles, [_spun(850)])
+
+    acg.generate_diagram_content(**_content_kwargs())
+    article_calls = [c for c in calls if c["step"] == "article"]
+    assert len(article_calls) == acg.DIAGRAM_CONTENT_MAX_ATTEMPTS
+    assert _words(850) in calls[-1]["prompt"]
+
+
+def test_spin_that_drops_text_is_redone(monkeypatch):
+    """A spin pass that renders well under the plain article lost text."""
+    _configure(monkeypatch)
+    calls = _two_step(monkeypatch, [_words(1000)], [_spun(700), _spun(990)])
+
+    assert acg.generate_diagram_content(**_content_kwargs()) == _spun(990)
+    assert [c["step"] for c in calls] == ["article", "spin", "spin"]
+
+
+def test_longest_spin_is_kept_after_max_attempts(monkeypatch):
+    _configure(monkeypatch)
+    calls = _two_step(monkeypatch, [_words(1000)], [_spun(800), _spun(700)])
+
+    assert acg.generate_diagram_content(**_content_kwargs()) == _spun(800)
+    spin_calls = [c for c in calls if c["step"] == "spin"]
+    assert len(spin_calls) == acg.DIAGRAM_SPIN_MAX_ATTEMPTS
+
+
+def test_spin_rendered_count_uses_the_shortest_option(monkeypatch):
+    """Spun text is judged by its shortest rendering, not its raw length."""
     padded = " ".join(["{one|two words here|three}"] * 300)
     assert len(padded.split()) > acg.MIN_DIAGRAM_CONTENT_WORDS
     assert acg.count_rendered_words(padded) < acg.MIN_DIAGRAM_CONTENT_WORDS
-    calls = _sequenced_call_openai(monkeypatch, [padded])
-
-    acg.generate_diagram_content(**_content_kwargs())
-    assert len(calls) == acg.DIAGRAM_CONTENT_MAX_ATTEMPTS
+    assert acg.count_rendered_words(_spun(800)) == 800
 
 
 def test_generate_diagram_content_enforces_token_floor(monkeypatch):
     _configure(monkeypatch, OPENAI_MAX_TOKENS="500")
-    long_draft = " ".join(["word"] * 800)
-    calls = _sequenced_call_openai(monkeypatch, [long_draft])
+    calls = _two_step(monkeypatch, [_words(1000)], [_spun(1000)])
 
     acg.generate_diagram_content(**_content_kwargs())
-    assert calls[0]["max_tokens"] == acg.DIAGRAM_CONTENT_MIN_MAX_TOKENS
+    assert {c["max_tokens"] for c in calls} == {acg.DIAGRAM_CONTENT_MIN_MAX_TOKENS}
 
 
 def test_generate_diagram_content_respects_higher_env_token_cap(monkeypatch):
     _configure(monkeypatch, OPENAI_MAX_TOKENS="9000")
-    long_draft = " ".join(["word"] * 800)
-    calls = _sequenced_call_openai(monkeypatch, [long_draft])
+    calls = _two_step(monkeypatch, [_words(1000)], [_spun(1000)])
 
     acg.generate_diagram_content(**_content_kwargs())
-    assert calls[0]["max_tokens"] == 9000
+    assert {c["max_tokens"] for c in calls} == {9000}

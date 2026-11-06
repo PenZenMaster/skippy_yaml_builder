@@ -142,6 +142,8 @@ class AutobuildResult:
     faq_sources: list[str]
     content_words: int
     warnings: list[str] = field(default_factory=list)
+    # Google searches made for People Also Ask questions.
+    faq_searched: list[str] = field(default_factory=list)
 
 
 # --------------------------------------------------------------------------
@@ -251,8 +253,12 @@ def unique_job_id(
 def pick_research_titles(keyword: str, clusters: list[dict], needed: int) -> list[str]:
     """Up to `needed` candidate titles from the clusters, highest search
     volume first, skipping flagged ones (possible competitor brand,
-    off-target location), the keyword itself and duplicates."""
-    seen = {_norm(keyword)}
+    off-target location) and near-duplicates: a title is skipped when all
+    its meaningful words (title_words) already appear in one title picked
+    before it, the keyword included. E.g. with the keyword "commercial
+    foundation repair", "Foundation Repair Near Me" is skipped, and after
+    "Foundation Repair Specialists", "Foundation Specialist" is too."""
+    picked = [title_words(keyword)]
     titles: list[str] = []
     for cluster in sorted(
         clusters, key=lambda c: c.get("total_search_volume", 0), reverse=True
@@ -262,11 +268,24 @@ def pick_research_titles(keyword: str, clusters: list[dict], needed: int) -> lis
         if cluster.get("candidate_page_title_flagged"):
             continue
         title = str(cluster.get("candidate_page_title") or "").strip()
-        if not title or _norm(title) in seen:
+        words = title_words(title)
+        if not words or any(words <= earlier for earlier in picked):
             continue
-        seen.add(_norm(title))
+        picked.append(words)
         titles.append(title)
     return titles
+
+
+def title_words(text: str) -> set[str]:
+    """A title's meaningful words: keyword research's own significant
+    tokens (stopwords such as near, me, best, the dropped; a plural "s"
+    dropped), plus "ies" plurals made singular so Companies = Company."""
+    from keyword_research_api import significant_tokens
+
+    return {
+        token[:-2] + "y" if token.endswith("ie") else token
+        for token in significant_tokens(text)
+    }
 
 
 def _lines(value: Any) -> list[str]:
@@ -455,6 +474,7 @@ def draft_stack(
         faq_sources=faq_sources,
         content_words=words,
         warnings=warnings,
+        faq_searched=list(getattr(faq_result, "searched_phrases", []) or []),
     )
 
 
@@ -495,6 +515,11 @@ def summary(result: AutobuildResult) -> str:
     ai = sum(1 for s in result.faq_sources if s == FAQ_SOURCE_AI)
     google = len(result.faq_sources) - ai
     lines.append(f"FAQs:         {len(result.faq_sources)} ({google} Google, {ai} AI)")
+    if result.faq_sources and google == 0 and result.faq_searched:
+        lines.append(
+            "  Google showed no People Also Ask questions for: "
+            + "; ".join(result.faq_searched)
+        )
     for faq, source in zip(job.get("faqs", []), result.faq_sources):
         if source == FAQ_SOURCE_AI:
             lines.append(f"  [AI] {faq['question']}")

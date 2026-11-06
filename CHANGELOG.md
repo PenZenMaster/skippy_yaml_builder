@@ -5,6 +5,34 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Diagram Content is written plain first, then spun** (app's Generate with
+  AI and autobuild). Asking for spun text directly never reached the 750
+  rendered-word floor (live 2026-11-05: 722 and 658 words with gpt-4o-mini,
+  577 with gpt-4o) because the model counts every spintax alternative while
+  the floor counts only the shortest. Now call 1 writes a plain 11-paragraph
+  article (asked for at least 900 words, aiming for 1,000; its count is
+  checked and it is rewritten with feedback when short), and call 2 adds
+  spintax keeping each original phrase as an option, with alternatives at
+  least as long. A spin pass that drops text is redone. First live run: 901
+  plain words, 900 rendered, in 2 calls on gpt-4o-mini.
+- **Diagram Content may not invent claims.** The article prompt limits facts
+  about the business to its name, category, location, service area and
+  services (no years in business, guarantees, quality promises, "leading" /
+  "trusted", licences, prices, free estimates...), and spin alternatives
+  may not add claims the original lacks. Live 2026-11-05 this removed
+  "years of experience" and "guarantee long-lasting results"; softer
+  team-skill wording ("our team is experienced") can still appear.
+- **FAQ answers are written in the business's own voice** ("we", "our
+  team"), never third person, and never "not specified" / "cannot
+  disclose". The never-claim list now also covers estimates and
+  consultations, staff qualifications and experience, and quality promises,
+  with two example answers showing the "general info, then contact us"
+  pattern.
+- **AI-suggested FAQ questions avoid owner-only topics** (prices, estimates,
+  warranties, licensing, insurance, hours, staff, years in business).
+
 ### Added
 
 - **`autobuild.py`: a Cloud Stack job from a client and a keyword, no
@@ -18,7 +46,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   titles/FAQs. Never calls YACSS or the factory; stops and writes nothing if
   any research/AI step fails. ALL-CAPS client names are shown with
   capitalised words in the link text; 10-digit phones as `(xxx) xxx-xxxx`.
-  See README, "Autobuild".
+  See README, "Autobuild". Research titles whose meaningful words are all
+  covered by a title picked earlier (the keyword included) are skipped as
+  near-duplicates, and the summary names the searches that returned no
+  People Also Ask questions when every FAQ had to come from AI (Google
+  shows no PAA box for "commercial foundation repair" or its city
+  variants -- confirmed live 2026-11-05).
 - **Stack profiles (`stack_profile.py`, `stack_profiles/default.yaml`).** A
   profile holds the house YACSS build settings (template, tiers, cloud
   accounts per tier, AI platform/model, tone, content mode, target-link
