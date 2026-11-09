@@ -1,8 +1,20 @@
 ## Resume From
 
-Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-11-06_0250.md`
-Last session: 2026-11-05/06
+Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-11-09_1444.md`
+Last session: 2026-11-09
 Branch: main | Version: 1.4.0 (tagged `v1.4.0`) + unreleased autobuild work, pushed
+
+**2026-11-09**: records two un-checkpointed 2026-11-06 commits plus
+today's fix. `autobuild --submit` (`b7bd829`) drafts the job in YACSS via
+the factory (bucket check + `factory all` preview, never `--confirm`) --
+this covered Phase 4: USS build 133401 is live. `--landing-url` /
+`--link-topic` and claim-free titles (`9e93974`) -- seven more USS stacks
+live (133409-133415). **One content image per page** (`6d16228`): the
+Overhead Door Joliet batch hit YACSS's 300-uploads/24h limit; jobs now
+carry one image per page and `--batch-position N` gives each stack of a
+batch its own images. 360/360 tests. **Next:** rerun the Overhead Door
+Joliet batch with `--batch-position 0..23` once the upload window resets;
+spin density / soft claims; cut a release.
 
 **2026-11-06 (shutdown)**: **autobuild** -- a Cloud Stack job from just a
 client and a keyword, no GUI. New `job_export.py` (export logic out of the
