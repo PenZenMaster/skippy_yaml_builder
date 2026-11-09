@@ -52,6 +52,7 @@ from ai_content_generator import (
 from ai_content_generator import (
     is_available as ai_content_is_available,
 )
+from app_paths import app_dir
 from city_embed_dialog import CityEmbedDialog
 from faq_generation import SOURCE_AI, generate_faqs
 from image_size_check import check_image_sizes
@@ -84,9 +85,9 @@ from yacss_api import (
 # running instance is identifiable, unlike the old hardcoded "v4" (a
 # leftover UI-redesign label, not a real version, that stopped being
 # updated years before this was added).
-__version__ = "1.5.0"
+__version__ = "1.5.1"
 
-README_PATH = Path(__file__).resolve().parent / "README.md"
+README_PATH = app_dir() / "README.md"
 
 # Export Job JSON's default save directory -- rr_yacss_factory's own jobs/
 # folder, where every existing job file (example-*.json, real client jobs)
@@ -97,13 +98,9 @@ README_PATH = Path(__file__).resolve().parent / "README.md"
 # Falls back to this file's own directory if that folder doesn't exist
 # (e.g. rr_yacss_factory not checked out on this machine) rather than
 # pointing the save dialog at a nonexistent path.
-_RR_YACSS_FACTORY_JOBS_DIR = (
-    Path(__file__).resolve().parent.parent / "rr_yacss_factory" / "jobs"
-)
+_RR_YACSS_FACTORY_JOBS_DIR = app_dir().parent / "rr_yacss_factory" / "jobs"
 DEFAULT_JOB_EXPORT_DIR = (
-    _RR_YACSS_FACTORY_JOBS_DIR
-    if _RR_YACSS_FACTORY_JOBS_DIR.is_dir()
-    else Path(__file__).resolve().parent
+    _RR_YACSS_FACTORY_JOBS_DIR if _RR_YACSS_FACTORY_JOBS_DIR.is_dir() else app_dir()
 )
 
 

@@ -53,9 +53,10 @@ Comments:
 
 import json
 import re
-from pathlib import Path
 
 from dotenv import dotenv_values
+
+from app_paths import app_dir
 
 try:
     from openai import OpenAI
@@ -68,9 +69,7 @@ except ImportError:  # pragma: no cover - exercised only when openai isn't insta
 # same parent directory (e.g. E:\projects\cloud-stack-generator and
 # E:\projects\skippy_yaml_builder), same assumption yacss_api.py already
 # makes for rr_yacss_factory.
-CLOUD_STACK_GENERATOR_ENV = (
-    Path(__file__).resolve().parent.parent / "cloud-stack-generator" / ".env"
-)
+CLOUD_STACK_GENERATOR_ENV = app_dir().parent / "cloud-stack-generator" / ".env"
 
 DEFAULT_MODEL = "gpt-4o-mini"
 DEFAULT_MAX_TOKENS = 2000

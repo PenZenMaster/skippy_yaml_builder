@@ -61,10 +61,10 @@ Comments:
   handful of questions Google shows unexpanded.
 """
 
-from pathlib import Path
-
 import requests
 from dotenv import dotenv_values
+
+from app_paths import app_dir
 
 API_BASE = "https://api.dataforseo.com/v3"
 LOCATION_CODE = 2840  # United States
@@ -82,9 +82,7 @@ MAX_PAA_QUESTIONS = 10
 MAX_PAA_CLICK_DEPTH = 4
 
 # Sibling project layout assumed, same as yacss_api.py's RR_YACSS_FACTORY_ENV.
-RR_YACSS_FACTORY_ENV = (
-    Path(__file__).resolve().parent.parent / "rr_yacss_factory" / ".env"
-)
+RR_YACSS_FACTORY_ENV = app_dir().parent / "rr_yacss_factory" / ".env"
 
 
 class KeywordResearchError(Exception):

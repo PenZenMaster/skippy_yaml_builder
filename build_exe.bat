@@ -17,9 +17,13 @@ del /q main.spec
 REM Build with custom icon
 pyinstaller --noconfirm --onefile --windowed --icon=skippy_the_magnificient.ico main.py
 
+REM The exe finds README.md, stack_profiles\ and the sibling
+REM rr_yacss_factory / cloud-stack-generator checkouts from its own folder
+REM (app_paths.py), so it must run from the repo root, not dist\.
 IF EXIST dist\main.exe (
+    copy /y dist\main.exe syb.exe >nul
     echo.
-    echo [Skippy] Build successful! EXE located at: dist\main.exe
+    echo [Skippy] Build successful! Run syb.exe from the repo root.
     echo.
 ) ELSE (
     echo.

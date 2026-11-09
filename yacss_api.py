@@ -32,19 +32,17 @@ Comments:
   assumed to be a model list too.
 """
 
-from pathlib import Path
-
 import requests
 from dotenv import dotenv_values
+
+from app_paths import app_dir
 
 DEFAULT_BASE_URL = "https://app.yacss.site/api/v1"
 
 # Sibling project layout assumed: both projects live directly under the
 # same parent directory (e.g. E:\projects\rr_yacss_factory and
 # E:\projects\skippy_yaml_builder).
-RR_YACSS_FACTORY_ENV = (
-    Path(__file__).resolve().parent.parent / "rr_yacss_factory" / ".env"
-)
+RR_YACSS_FACTORY_ENV = app_dir().parent / "rr_yacss_factory" / ".env"
 
 
 class YacssApiError(Exception):

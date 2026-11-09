@@ -5,6 +5,21 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-11-09
+
+### Fixed
+
+- **The Windows exe finds its files again.** A PyInstaller one-file exe
+  runs from a temporary unpack folder, so every path the app took from its
+  own location (the sibling `rr_yacss_factory/.env` and
+  `cloud-stack-generator/.env`, README.md, `stack_profiles/`, the default
+  Export Job JSON folder) pointed into `%TEMP%`: YACSS dropdowns stayed
+  empty and AI generation / keyword research reported no API key. New
+  `app_paths.app_dir()` uses the exe's own folder when frozen, and
+  `build_exe.bat` now copies the build to the repo root as `syb.exe`
+  (gitignored) -- run it from there. `pyinstaller` added to
+  `requirements-dev.txt`.
+
 ## [1.5.0] - 2026-11-09
 
 ### Added

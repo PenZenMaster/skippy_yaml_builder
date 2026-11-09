@@ -62,3 +62,5 @@ source/
 client_yaml/
 # ...except the house stack profiles, which hold no client data
 !stack_profiles/*.yaml
+# Built exe, copied to the repo root by build_exe.bat (see app_paths.py)
+/syb.exe

@@ -32,10 +32,11 @@ Comments:
 - v1.00 Initial implementation.
 """
 
-from pathlib import Path
 from typing import Optional
 
 from dotenv import dotenv_values
+
+from app_paths import app_dir
 
 try:
     from openai import OpenAI
@@ -45,9 +46,7 @@ except ImportError:  # pragma: no cover - exercised only when openai isn't insta
     OPENAI_AVAILABLE = False
 
 # Same sibling-project layout assumption as ai_content_generator.py.
-CLOUD_STACK_GENERATOR_ENV = (
-    Path(__file__).resolve().parent.parent / "cloud-stack-generator" / ".env"
-)
+CLOUD_STACK_GENERATOR_ENV = app_dir().parent / "cloud-stack-generator" / ".env"
 
 DEFAULT_MODEL = "gpt-4o-mini"
 DEFAULT_MAX_TOKENS = 1500

@@ -33,7 +33,9 @@ from typing import Any
 
 import yaml
 
-PROFILES_DIR = Path(__file__).resolve().parent / "stack_profiles"
+from app_paths import app_dir
+
+PROFILES_DIR = app_dir() / "stack_profiles"
 DEFAULT_PROFILE = PROFILES_DIR / "default.yaml"
 
 # Build settings a profile may set. Anything else (client facts such as
