@@ -5,6 +5,51 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-09
+
+### Added
+
+- **`autobuild.py --landing-url` / `--link-topic`**: point a stack's
+  backlink at the client page for that keyword's service (for this stack
+  only; the client file is unchanged), and override the topic named in the
+  link sentence. Used 2026-11-06 for seven USS stacks (builds
+  133409-133415), each linking to its own service page.
+
+- **`autobuild.py --submit`**: after writing the job, stops on warnings,
+  checks the pinned bucket exists on every account (`factory onboard-client`
+  dry run; prints the create command if not), then runs `factory all`
+  WITHOUT `--confirm` (a real YACSS draft plus YACSS's generate/publish
+  preview) and prints the `--confirm` command that finishes the build,
+  listing any other drafted jobs it would also generate. Never confirms by
+  itself.
+- **`autobuild.py`: a Cloud Stack job from a client and a keyword, no
+  app.** Takes client facts from the newest Diagram file in
+  `client_yaml/<client>/` (or `--from`), applies the stack profile, picks
+  page titles (keyword first, then unflagged keyword-research clusters by
+  volume, AI for any shortfall), writes spun content and 15 FAQs (People
+  Also Ask, AI top-up), builds the job with `job_export`, and checks image
+  sizes. Writes a new client YAML and a rr_yacss_factory job file with a
+  unique `<client>-<keyword>` job id, and prints a summary marking AI-written
+  titles/FAQs. Never calls YACSS or the factory; stops and writes nothing if
+  any research/AI step fails. ALL-CAPS client names are shown with
+  capitalised words in the link text; 10-digit phones as `(xxx) xxx-xxxx`.
+  See README, "Autobuild". Research titles whose meaningful words are all
+  covered by a title picked earlier (the keyword included) are skipped as
+  near-duplicates, and the summary names the searches that returned no
+  People Also Ask questions when every FAQ had to come from AI (Google
+  shows no PAA box for "commercial foundation repair" or its city
+  variants -- confirmed live 2026-11-05).
+- **Stack profiles (`stack_profile.py`, `stack_profiles/default.yaml`).** A
+  profile holds the house YACSS build settings (template, tiers, cloud
+  accounts per tier, AI platform/model, tone, content mode, target-link
+  text) under the same field names as a client file.
+  `apply_profile(client_data, profile, keyword)` overrides the client
+  file's build settings with the profile's, fills `{client_name}` /
+  `{keyword}` in the link text, and sets the keyword; the result goes
+  straight into `job_export.build_job()`. A profile may only set build
+  settings; any other field is rejected. Headless only; the app is
+  unchanged. `.gitignore` now keeps `stack_profiles/*.yaml` tracked.
+
 ### Changed
 
 - **Diagram Content is checked for soft claims and spin density** (app's
@@ -72,51 +117,6 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the landing page's topic read from its address (/foundation-repair/ ->
   "foundation repair"), not the raw keyword ("...about foundation repair
   contractor.").
-
-### Added
-
-- **`autobuild.py --landing-url` / `--link-topic`**: point a stack's
-  backlink at the client page for that keyword's service (for this stack
-  only; the client file is unchanged), and override the topic named in the
-  link sentence. Used 2026-11-06 for seven USS stacks (builds
-  133409-133415), each linking to its own service page.
-
-- **`autobuild.py --submit`**: after writing the job, stops on warnings,
-  checks the pinned bucket exists on every account (`factory onboard-client`
-  dry run; prints the create command if not), then runs `factory all`
-  WITHOUT `--confirm` (a real YACSS draft plus YACSS's generate/publish
-  preview) and prints the `--confirm` command that finishes the build,
-  listing any other drafted jobs it would also generate. Never confirms by
-  itself.
-- **`autobuild.py`: a Cloud Stack job from a client and a keyword, no
-  app.** Takes client facts from the newest Diagram file in
-  `client_yaml/<client>/` (or `--from`), applies the stack profile, picks
-  page titles (keyword first, then unflagged keyword-research clusters by
-  volume, AI for any shortfall), writes spun content and 15 FAQs (People
-  Also Ask, AI top-up), builds the job with `job_export`, and checks image
-  sizes. Writes a new client YAML and a rr_yacss_factory job file with a
-  unique `<client>-<keyword>` job id, and prints a summary marking AI-written
-  titles/FAQs. Never calls YACSS or the factory; stops and writes nothing if
-  any research/AI step fails. ALL-CAPS client names are shown with
-  capitalised words in the link text; 10-digit phones as `(xxx) xxx-xxxx`.
-  See README, "Autobuild". Research titles whose meaningful words are all
-  covered by a title picked earlier (the keyword included) are skipped as
-  near-duplicates, and the summary names the searches that returned no
-  People Also Ask questions when every FAQ had to come from AI (Google
-  shows no PAA box for "commercial foundation repair" or its city
-  variants -- confirmed live 2026-11-05).
-- **Stack profiles (`stack_profile.py`, `stack_profiles/default.yaml`).** A
-  profile holds the house YACSS build settings (template, tiers, cloud
-  accounts per tier, AI platform/model, tone, content mode, target-link
-  text) under the same field names as a client file.
-  `apply_profile(client_data, profile, keyword)` overrides the client
-  file's build settings with the profile's, fills `{client_name}` /
-  `{keyword}` in the link text, and sets the keyword; the result goes
-  straight into `job_export.build_job()`. A profile may only set build
-  settings; any other field is rejected. Headless only; the app is
-  unchanged. `.gitignore` now keeps `stack_profiles/*.yaml` tracked.
-
-### Changed
 
 - **Job export logic moved out of the GUI into `job_export.py`.** The
   Cloud Stack / Listicle / Masspage job builders now take the same dict a
