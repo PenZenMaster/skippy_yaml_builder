@@ -236,3 +236,68 @@ def test_gui_and_saved_file_agree(qapp):
         "25398": "acme-plumbing",
         "25701": "acme-plumbing",
     }
+
+
+# --------------------------------------------------------------------------
+# select_content_images: one image per page, sliced by batch position
+# --------------------------------------------------------------------------
+
+IMAGES = [f"https://x.example/{i}.jpg" for i in range(1, 8)]  # 7 images
+
+
+def test_select_content_images_first_stack_takes_the_first_pages():
+    assert job_export.select_content_images(IMAGES, 3, 0) == IMAGES[0:3]
+
+
+def test_select_content_images_next_stack_takes_the_next_slice():
+    assert job_export.select_content_images(IMAGES, 3, 1) == IMAGES[3:6]
+
+
+def test_select_content_images_wraps_round_the_end():
+    # Position 2 starts at image 7 (index 6) and wraps to images 1 and 2.
+    assert job_export.select_content_images(IMAGES, 3, 2) == [
+        IMAGES[6],
+        IMAGES[0],
+        IMAGES[1],
+    ]
+
+
+def test_select_content_images_start_wraps_for_large_positions():
+    # Position 5 -> start index 15 % 7 = 1.
+    assert job_export.select_content_images(IMAGES, 3, 5) == IMAGES[1:4]
+
+
+@pytest.mark.parametrize("count", [3, 2])
+def test_select_content_images_short_list_is_unchanged(count):
+    # No more images than pages: the factory repeats them, nothing to cut.
+    urls = IMAGES[:count]
+    assert job_export.select_content_images(urls, 3, 4) == urls
+
+
+def test_select_content_images_zero_pages_is_unchanged():
+    assert job_export.select_content_images(IMAGES, 0, 1) == IMAGES
+
+
+def test_select_content_images_negative_position_counts_as_zero():
+    assert job_export.select_content_images(IMAGES, 3, -2) == IMAGES[0:3]
+
+
+def test_build_job_batch_position_picks_the_stack_s_slice():
+    # _diagram_data has 5 pages; 12 images -> position 1 gets images 6-10.
+    urls = [f"https://x.example/{i}.jpg" for i in range(1, 13)]
+    data = _diagram_data(**{"Content Image URLs (one per line)": urls})
+
+    first, warnings = job_export.build_job(data)
+    second, _ = job_export.build_job(data, batch_position=1)
+
+    assert first["content_image_urls"] == urls[0:5]
+    assert second["content_image_urls"] == urls[5:10]
+    assert warnings == []
+
+
+def test_build_job_batch_position_is_ignored_by_listicles():
+    data = {
+        "YACSS Build Type": "Listicle",
+        "* Client Name": "Acme Plumbing",
+    }
+    assert job_export.build_job(data, batch_position=3) == job_export.build_job(data)

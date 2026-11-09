@@ -34,13 +34,16 @@ Created Date:
 2026-11-05
 
 Last Modified Date:
-2026-11-06
+2026-11-09
 
 Comments:
 - v1.00 Initial implementation.
 - v1.01 --submit, --landing-url, --link-topic ({service} in the link
   sentence); research titles about cost/price/"near me" skipped and AI
   titles making claims ("leading", "trusted", "affordable"...) dropped.
+- v1.02 --batch-position N: the stack's place in a batch, so each stack
+  of a batch gets its own slice of the client's Content Image URLs (one
+  image per page; job_export.select_content_images).
 """
 
 import argparse
@@ -416,6 +419,7 @@ def draft_stack(
     manifest: Path = FACTORY_MANIFEST,
     services: Services | None = None,
     log: Callable[[str], None] = lambda _msg: None,
+    batch_position: int = 0,
 ) -> AutobuildResult:
     """Runs every step and returns the drafted client data and job without
     writing anything (see write_outputs). `landing_url`, when given,
@@ -423,8 +427,10 @@ def draft_stack(
     its backlink points at (e.g. the client's own page for this keyword's
     service). `link_topic` fills the profile's {service} (the link sentence's
     topic); by default it is read from the landing page's address
-    (link_topic_from_url). Raises AutobuildError (or the research/AI
-    module's own error) on any failure."""
+    (link_topic_from_url). `batch_position` is this stack's place in a
+    batch (0 for a single stack): it picks which slice of the client's
+    Content Image URLs the stack gets. Raises AutobuildError (or the
+    research/AI module's own error) on any failure."""
     services = services or Services()
     keyword = " ".join(keyword.split())
     if not keyword:
@@ -531,7 +537,7 @@ def draft_stack(
     data[FAQ_FIELD] = [{"question": i.question, "answer": i.answer} for i in faq_items]
     faq_sources = [i.source for i in faq_items]
 
-    job, warnings = job_export.build_job(data)
+    job, warnings = job_export.build_job(data, batch_position)
     if words < MIN_DIAGRAM_CONTENT_WORDS:
         warnings.append(
             f"Content is {words} rendered words, below the {MIN_DIAGRAM_CONTENT_WORDS} minimum"
@@ -769,6 +775,14 @@ def main(argv: list[str] | None = None) -> int:
         help="stack profile",
     )
     parser.add_argument(
+        "--batch-position",
+        type=int,
+        default=0,
+        help="this stack's place in a batch (0, 1, 2...), so each stack gets "
+        "different content images: one per page, starting at "
+        "position x pages in the client's Content Image URLs (default 0)",
+    )
+    parser.add_argument(
         "--submit",
         action="store_true",
         help="then draft it in YACSS through rr_yacss_factory and show the "
@@ -789,6 +803,7 @@ def main(argv: list[str] | None = None) -> int:
             link_topic=args.link_topic,
             profile_path=args.profile,
             log=lambda msg: print(msg, flush=True),
+            batch_position=args.batch_position,
         )
         write_outputs(result)
     except (AutobuildError, AiContentError, KeywordResearchError) as e:

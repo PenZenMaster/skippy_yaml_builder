@@ -7,6 +7,19 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Cloud Stack jobs carry one content image per page.** When Content Image
+  URLs has more lines than the stack has pages, the job now gets exactly
+  one image per page instead of the whole list, and the "extra images will
+  never be used" warning is gone. Every per-page image costs one YACSS
+  upload, and YACSS allows 300 per 24 hours: the 2026-11-09 Overhead Door
+  Joliet batch (24 stacks x 74 images + hero + logo) hit that limit before
+  any stack was drafted. A 14-page stack now needs 16 uploads. The images
+  are taken in order from the list; the app's Export Job JSON takes the
+  first ones, and autobuild's new `--batch-position N` starts stack N of a
+  batch at image N x pages + 1 (wrapping round at the end), so the stacks
+  of one batch use different images. The saved client YAML keeps the full
+  list.
+
 - **Diagram Content is written plain first, then spun** (app's Generate with
   AI and autobuild). Asking for spun text directly never reached the 750
   rendered-word floor (live 2026-11-05: 722 and 658 words with gpt-4o-mini,

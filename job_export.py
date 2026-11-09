@@ -24,16 +24,22 @@ Created Date:
 2026-11-05
 
 Last Modified Date:
-2026-11-05
+2026-11-09
 
 Comments:
 - v1.00 Moved out of main.py's YAMLForm (_build_cloud_stack_job,
   _build_listicle_job, _build_masspage_job and their helpers) unchanged in
   behavior, so the job export can run without the GUI.
+- v1.01 Content Image URLs longer than the stack's page count are cut to
+  one image per page (select_content_images), starting at the job's
+  batch_position so the stacks of one batch use different images. Every
+  per-page image costs one YACSS upload (300 per 24h), so unused extras
+  are no longer sent. Replaces the "extra images will never be used"
+  warning.
 """
 
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
 FormData = Mapping[str, Any]
@@ -269,7 +275,25 @@ def _maps_url(data: FormData, job: dict[str, Any], warnings: list[str]) -> None:
 # --------------------------------------------------------------------------
 
 
-def build_cloud_stack_job(data: FormData) -> tuple[dict[str, Any], list[str]]:
+def select_content_images(
+    urls: list[str], pages: int, batch_position: int = 0
+) -> list[str]:
+    """The per-page content images for one stack: one image per page,
+    taken in order from the client's list starting at
+    batch_position * pages and wrapping round at the end, so stack 0 of a
+    batch gets images 1..pages, stack 1 the next `pages`, and so on. A list
+    no longer than the page count (or a stack with no pages) is returned
+    unchanged -- rr_yacss_factory already repeats a short list across the
+    pages."""
+    if pages < 1 or len(urls) <= pages:
+        return list(urls)
+    start = (max(batch_position, 0) * pages) % len(urls)
+    return [urls[(start + i) % len(urls)] for i in range(pages)]
+
+
+def build_cloud_stack_job(
+    data: FormData, batch_position: int = 0
+) -> tuple[dict[str, Any], list[str]]:
     """Builds a rr_yacss_factory CloudStackJob dict, plus a list of
     human-readable warnings for anything that looks incomplete or
     inconsistent (blank required fields, a page_titles count that doesn't
@@ -295,7 +319,10 @@ def build_cloud_stack_job(data: FormData) -> tuple[dict[str, Any], list[str]]:
     With YACSS Pinned Bucket set, the keyword names no bucket and is
     exported as typed; the job instead gets `cloud_buckets` (that bucket
     on every tier cloud account) and `directory` (YACSS Stack Folder, or
-    the slugified keyword when blank)."""
+    the slugified keyword when blank).
+    Content Image URLs longer than the page count are cut to one image per
+    page by select_content_images, starting at `batch_position` (the
+    stack's place in a batch; 0 for a single export)."""
     warnings: list[str] = []
 
     def require(value: str, label: str) -> None:
@@ -441,16 +468,13 @@ def build_cloud_stack_job(data: FormData) -> tuple[dict[str, Any], list[str]]:
         job["content_image_url"] = content_image_url
     content_image_urls = _lines(data, "Content Image URLs (one per line)")
     if content_image_urls:
-        job["content_image_urls"] = content_image_urls
+        job["content_image_urls"] = select_content_images(
+            content_image_urls, expected_total, batch_position
+        )
         if content_image_url:
             warnings.append(
                 "Content Image URL and Content Image URLs are both filled in -- "
                 "rr_yacss_factory rejects the combination; use one or the other"
-            )
-        if len(content_image_urls) > expected_total:
-            warnings.append(
-                f"Content Image URLs has {len(content_image_urls)} line(s) but the "
-                f"stack only has {expected_total} page(s) -- the extra images will never be used"
             )
 
     # content_mode omitted entirely for the cheap/default option -- the
@@ -656,23 +680,30 @@ def build_masspage_job(data: FormData) -> tuple[dict[str, Any], list[str]]:
     return job, warnings
 
 
-JOB_BUILDERS = {
+JobBuilder = Callable[[FormData], tuple[dict[str, Any], list[str]]]
+
+JOB_BUILDERS: dict[str, JobBuilder] = {
     "Diagram": build_cloud_stack_job,
     "Listicle": build_listicle_job,
     "Masspage_Silo_Local": build_masspage_job,
 }
 
 
-def build_job(data: FormData) -> tuple[dict[str, Any], list[str]]:
+def build_job(
+    data: FormData, batch_position: int = 0
+) -> tuple[dict[str, Any], list[str]]:
     """Dispatches on "YACSS Build Type". Raises ValueError when it isn't
     one of BUILD_TYPES (the GUI checks this first and shows its own
-    message)."""
+    message). `batch_position` only affects Cloud Stack jobs (which
+    content images they get -- see select_content_images)."""
     build_type = _text(data, BUILD_TYPE_FIELD).strip()
     builder = JOB_BUILDERS.get(build_type)
     if builder is None:
         raise ValueError(
             f"YACSS Build Type {build_type!r} is not one of: {', '.join(BUILD_TYPES)}"
         )
+    if builder is build_cloud_stack_job:
+        return build_cloud_stack_job(data, batch_position)
     return builder(data)
 
 

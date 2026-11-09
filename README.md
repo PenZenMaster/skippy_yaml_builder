@@ -431,6 +431,11 @@ Drafts a whole Diagram (Cloud Stack) job without opening the app:
 - **Job id**: `<client-folder>-<keyword>`, with `-02`, `-03`... added if a
   job file or rr_yacss_factory manifest entry already uses it. A pinned
   bucket gets a folder named after the keyword.
+- **Content images**: one per page from the client's Content Image URLs
+  (YACSS allows 300 image uploads per 24 hours, and each per-page image is
+  one upload). When running several stacks as a batch, give each one
+  `--batch-position 0`, `1`, `2`... so stack N starts at image
+  N x pages + 1 (wrapping round) and the stacks use different images.
 
 It writes `client_yaml/<client>/<job-id>.yaml` (open it in the app to
 review or edit) and `../rr_yacss_factory/jobs/<job-id>.json`, then prints a

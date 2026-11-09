@@ -579,3 +579,37 @@ def test_submit_lists_other_drafted_jobs(env, tmp_path):
     assert "also generates these other drafted jobs" in text
     assert "other-job (build 2)" in text
     assert "done-job" not in text
+
+
+def test_batch_position_gives_each_stack_its_own_images(env, tmp_path):
+    # 14 pages (house profile) and 30 client images: stack 0 gets images
+    # 1-14, stack 1 gets 15-28, and both client YAMLs keep the full list.
+    urls = [f"https://uss.example/img-{i}.jpg" for i in range(1, 31)]
+    source = tmp_path / "with-images.yaml"
+    source.write_text(
+        yaml.dump(_client_file(**{"Content Image URLs (one per line)": urls})),
+        encoding="utf-8",
+    )
+
+    first = _draft(env, _services(), from_file=source)
+    second = _draft(env, _services(), from_file=source, batch_position=1)
+
+    assert first.job["content_image_urls"] == urls[0:14]
+    assert second.job["content_image_urls"] == urls[14:28]
+    assert first.client_data["Content Image URLs (one per line)"] == urls
+    assert not any("never be used" in w for w in second.warnings)
+
+
+def test_batch_position_option_reaches_draft_stack(monkeypatch):
+    seen = {}
+
+    def fake_draft(*args, **kwargs):
+        seen.update(kwargs)
+        raise autobuild.AutobuildError("stop here")
+
+    monkeypatch.setattr(autobuild, "draft_stack", fake_draft)
+
+    code = autobuild.main(["--client", "x", "--keyword", "y", "--batch-position", "3"])
+
+    assert code == 1
+    assert seen["batch_position"] == 3

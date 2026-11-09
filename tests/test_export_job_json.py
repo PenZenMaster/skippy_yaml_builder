@@ -925,6 +925,8 @@ def test_export_job_json_skips_prompt_when_override_already_filled_in(
 def test_build_cloud_stack_job_maps_content_image_urls_list(qapp):
     form = YAMLForm()
     _fill_required_fields(form)
+    # 1 + 1 = 2 pages, so both images fit (more than one per page are cut).
+    form.inputs["YACSS Tiers (tier:pages, one per line)"].setPlainText("1:1")
     form.inputs["YACSS Diagram Content"].setPlainText("content")
     form.inputs["Content Image URLs (one per line)"].setPlainText(
         "https://acmeplumbing.example/a.jpg\n\n  https://acmeplumbing.example/b.jpg  \n"
@@ -1107,16 +1109,20 @@ def test_build_cloud_stack_job_warns_when_both_content_image_fields_filled(qapp)
     assert any("both filled in" in w for w in warnings)
 
 
-def test_build_cloud_stack_job_warns_when_more_images_than_pages(qapp):
+def test_build_cloud_stack_job_cuts_extra_images_to_one_per_page(qapp):
+    # More images than pages: the GUI export (batch position 0) sends only
+    # the first image per page -- every extra would cost a YACSS upload
+    # without ever being shown -- and no longer warns about it.
     form = YAMLForm()
     _fill_required_fields(form)  # tier0_pages=1, no tiers -> 1 page total
     form.inputs["Content Image URLs (one per line)"].setPlainText(
         "https://acmeplumbing.example/a.jpg\nhttps://acmeplumbing.example/b.jpg"
     )
 
-    _, warnings = form._build_cloud_stack_job()
+    job, warnings = form._build_cloud_stack_job()
 
-    assert any("2 line(s)" in w and "1 page(s)" in w for w in warnings)
+    assert job["content_image_urls"] == ["https://acmeplumbing.example/a.jpg"]
+    assert not any("never be used" in w for w in warnings)
 
 
 def test_content_image_urls_field_round_trips_through_save_and_load(
