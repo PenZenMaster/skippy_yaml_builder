@@ -7,6 +7,21 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Diagram Content is checked for soft claims and spin density** (app's
+  Generate with AI and autobuild). Live 2026-11-06 the content still said
+  "Our team is {experienced|skilled|proficient}" and "Our experts", and a
+  spin had only 12 groups. The prompts now name those words, and the code
+  checks them: a plain article using "experienced", "expert(s)",
+  "expertise", "skilled", "proficient", "seasoned", "qualified",
+  "certified", "trusted" and similar is rewritten with feedback, and a
+  spin adding one is redone. When fewer than 90% of sentences carry
+  spintax, one extra call spins just the unspun sentences; a reply that
+  changes the original wording, renders shorter or adds a claim is
+  dropped. Live 2026-11-09 (United Structural Systems): claims caught and
+  removed, spintax coverage 85% -> 98% of sentences, 925 rendered words.
+  A clean article now beats a longer one with a claim, so content can land
+  shorter (still never under the 750-word floor when any draft reaches it).
+
 - **Cloud Stack jobs carry one content image per page.** When Content Image
   URLs has more lines than the stack has pages, the job now gets exactly
   one image per page instead of the whole list, and the "extra images will

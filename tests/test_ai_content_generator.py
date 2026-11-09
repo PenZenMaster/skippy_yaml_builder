@@ -451,15 +451,19 @@ def _spun(n):
     return " ".join(["{word|longer phrase}"] * n)
 
 
-def _two_step(monkeypatch, articles, spins):
+def _two_step(monkeypatch, articles, spins, topups=("{}",)):
     """Fake _call_openai: plain-article calls get `articles` in turn, spin
-    calls get `spins` in turn (the last one repeats)."""
+    calls get `spins` in turn, sentence top-up calls (JSON mode) get
+    `topups` in turn (the last one repeats)."""
     calls = []
 
-    def fake(system_message, prompt, max_tokens):
-        step = "spin" if "spintax" in system_message else "article"
+    def fake(system_message, prompt, max_tokens, json_mode=False):
+        if json_mode:
+            step = "topup"
+        else:
+            step = "spin" if "spintax" in system_message else "article"
         calls.append({"step": step, "prompt": prompt, "max_tokens": max_tokens})
-        source = spins if step == "spin" else articles
+        source = {"spin": spins, "article": articles, "topup": topups}[step]
         count = sum(1 for c in calls if c["step"] == step)
         return source[min(count, len(source)) - 1]
 
@@ -551,6 +555,154 @@ def test_spin_rendered_count_uses_the_shortest_option(monkeypatch):
     assert len(padded.split()) > acg.MIN_DIAGRAM_CONTENT_WORDS
     assert acg.count_rendered_words(padded) < acg.MIN_DIAGRAM_CONTENT_WORDS
     assert acg.count_rendered_words(_spun(800)) == 800
+
+
+def test_find_soft_claims_matches_whole_words_any_case():
+    text = "Our {Experienced|skilled} team. Expertise matters. Top-notch work."
+    assert acg.find_soft_claims(text) == [
+        "experienced",
+        "expertise",
+        "skilled",
+        "top-notch",
+    ]
+    assert acg.find_soft_claims("inexperienced unskilled expertly notched") == []
+
+
+def test_spin_coverage_counts_sentences_with_a_group():
+    text = "We {fix|repair} walls. We pour slabs! Is it {safe|sound}? Yes. {A|B}."
+    assert acg.spin_coverage(text) == (3, 5)
+    # Punctuation inside an alternative does not split the sentence.
+    assert acg.spin_coverage("We {fix it. Fast|repair it} today.") == (1, 1)
+    # Nor does an abbreviation before a lowercase word (live 2026-11-09).
+    text = "Call Acme Systems, Inc. today. Choosing {us|our team} helps."
+    assert acg.spin_coverage(text) == (1, 2)
+
+
+def test_content_prompts_name_soft_team_claims_and_require_spin_every_sentence(
+    monkeypatch,
+):
+    """Live 2026-11-06: "Our team is {experienced|skilled|proficient}" and
+    only 12 spintax groups."""
+    _configure(monkeypatch)
+    calls = _two_step(monkeypatch, [_words(1000)], [_spun(1000)])
+    acg.generate_diagram_content(**_content_kwargs())
+
+    article_prompt = " ".join(calls[0]["prompt"].split())
+    assert "Do not describe the team's skill or experience" in article_prompt
+    assert '"skilled", "proficient"' in article_prompt
+    spin_prompt = " ".join(calls[1]["prompt"].split())
+    assert "EVERY sentence must contain at least one {a|b|c} group" in spin_prompt
+    assert '"skilled", "proficient"' in spin_prompt
+
+
+def test_article_with_soft_claim_is_rewritten_with_feedback(monkeypatch):
+    _configure(monkeypatch)
+    claimed = _words(990) + " our experienced experts"
+    calls = _two_step(monkeypatch, [claimed, _words(1000)], [_spun(1000)])
+
+    acg.generate_diagram_content(**_content_kwargs())
+    assert [c["step"] for c in calls] == ["article", "article", "spin"]
+    retry = " ".join(calls[1]["prompt"].split())
+    assert 'a previous draft used "experienced", "experts"' in retry
+    assert "below the required minimum" not in retry
+    assert _words(1000) in calls[2]["prompt"]
+
+
+def test_claim_free_article_beats_a_longer_one_with_claims(monkeypatch):
+    _configure(monkeypatch)
+    claimed = _words(1000) + " skilled"
+    articles = [claimed, _words(850), claimed]
+    calls = _two_step(monkeypatch, articles, [_spun(850)])
+
+    acg.generate_diagram_content(**_content_kwargs())
+    assert _words(850) in calls[-1]["prompt"]
+    assert "skilled" not in calls[-1]["prompt"].split("ARTICLE:")[-1]
+
+
+def test_spin_adding_a_soft_claim_is_redone_with_feedback(monkeypatch):
+    _configure(monkeypatch)
+    claimed = _spun(1000) + " {our team|our seasoned team}"
+    calls = _two_step(monkeypatch, [_words(1000)], [claimed, _spun(1000)])
+
+    assert acg.generate_diagram_content(**_content_kwargs()) == _spun(1000)
+    assert [c["step"] for c in calls] == ["article", "spin", "spin"]
+    assert 'a previous attempt added "seasoned"' in calls[2]["prompt"]
+
+
+def _sentences(n):
+    return [f"Sentence {i} has plain words in it." for i in range(1, n + 1)]
+
+
+def test_sparse_spin_gets_a_top_up_for_unspun_sentences_only(monkeypatch):
+    """Live 2026-11-09 a whole re-spin came back with the same 18 of 46
+    sentences spun; now only the unspun sentences are sent, once."""
+    _configure(monkeypatch)
+    plain = _sentences(3)
+    sparse = f"{_spun(1000)}. {plain[0]} {plain[1]}\n\n{plain[2]}"
+    replies = [s.replace("plain", "{plain|ordinary}") for s in plain]
+    calls = _two_step(
+        monkeypatch,
+        [_words(1000)],
+        [sparse],
+        [json.dumps({"sentences": replies})],
+    )
+
+    result = acg.generate_diagram_content(**_content_kwargs())
+    assert [c["step"] for c in calls] == ["article", "spin", "topup"]
+    assert "1. Sentence 1 has plain words in it." in calls[2]["prompt"]
+    assert _spun(1000) not in calls[2]["prompt"]
+    assert result == f"{_spun(1000)}. {replies[0]} {replies[1]}\n\n{replies[2]}"
+    assert acg.spin_coverage(result) == (4, 4)
+
+
+def test_top_up_reply_that_changes_the_wording_is_dropped(monkeypatch):
+    _configure(monkeypatch)
+    plain = _sentences(3)
+    sparse = f"{_spun(1000)}. " + " ".join(plain)
+    replies = [
+        "Sentence 1 has {new|fresh} words in it.",  # first option not original
+        "Sentence 2 has {plain words|words} in it.",  # alternative shorter
+        "Sentence 3 has {plain|expert} words in it.",  # adds a soft claim
+    ]
+    _two_step(
+        monkeypatch, [_words(1000)], [sparse], [json.dumps({"sentences": replies})]
+    )
+
+    assert acg.generate_diagram_content(**_content_kwargs()) == sparse
+
+
+def test_failed_top_up_keeps_the_spin(monkeypatch):
+    _configure(monkeypatch)
+    sparse = f"{_spun(1000)}. " + " ".join(_sentences(3))
+    _two_step(monkeypatch, [_words(1000)], [sparse], ["not json"])
+    assert acg.generate_diagram_content(**_content_kwargs()) == sparse
+
+    def fail(**kwargs):
+        if kwargs.get("json_mode"):
+            raise acg.AiContentError("boom")
+        return _words(1000) if "spintax" not in kwargs["system_message"] else sparse
+
+    monkeypatch.setattr(acg, "_call_openai", fail)
+    assert acg.generate_diagram_content(**_content_kwargs()) == sparse
+
+
+def test_dense_spin_gets_no_top_up(monkeypatch):
+    _configure(monkeypatch)
+    calls = _two_step(monkeypatch, [_words(1000)], [_spun(1000)])
+    acg.generate_diagram_content(**_content_kwargs())
+    assert "topup" not in [c["step"] for c in calls]
+
+
+def test_soft_claim_in_the_article_does_not_fail_the_spin(monkeypatch):
+    """A claim the article already makes cannot be removed by re-spinning,
+    which keeps the original wording."""
+    _configure(monkeypatch)
+    claimed = _words(1000) + " certified"
+    spun = _spun(1000) + " {certified|certified}"
+    calls = _two_step(monkeypatch, [claimed], [spun])
+
+    acg.generate_diagram_content(**_content_kwargs())
+    assert [c["step"] for c in calls].count("spin") == 1
 
 
 def test_generate_diagram_content_enforces_token_floor(monkeypatch):

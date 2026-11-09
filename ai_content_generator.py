@@ -21,7 +21,7 @@ Created Date:
 2026-08-27
 
 Last Modified Date:
-2026-09-26
+2026-11-09
 
 Comments:
 - v1.00 Initial implementation.
@@ -42,6 +42,13 @@ Comments:
   business, licences, guarantees and statistics. Added
   generate_faq_questions (AI-suggested questions to top up a short
   Google People Also Ask result) and _call_openai's json_mode.
+- v1.04 generate_diagram_content checks its own output: soft team-skill
+  claims ("experienced", "experts", "skilled"... -- find_soft_claims) in
+  the plain article or spin, and spin density (spin_coverage, at least
+  SPIN_MIN_SENTENCE_COVERAGE of sentences with a spintax group). A draft
+  or spin with a claim is retried with feedback within the existing
+  attempts; a sparse spin gets one top-up call for just its unspun
+  sentences (_spin_unspun_sentences).
 """
 
 import json
@@ -101,8 +108,44 @@ _CONTENT_CLAIM_RULES = """NO INVENTED CLAIMS: the only facts you may state about
    "leading", "trusted", "top-rated" or "the best", licences, insurance or
    certifications, awards, reviews, prices, free estimates or
    consultations, response times, statistics, or staff counts or
-   qualifications. General facts about the trade (how the work is done,
+   qualifications. Do not describe the team's skill or experience at all:
+   no "experienced", "expert(s)", "expertise", "skilled", "proficient",
+   "seasoned", "knowledgeable" or "qualified" -- write what the work
+   involves instead. General facts about the trade (how the work is done,
    why it matters) are fine when written as general information."""
+
+# Soft claims checked in code (find_soft_claims), because the prompt rule
+# alone did not hold: live 2026-11-06 the content still said "Our team is
+# {experienced|skilled|proficient}" and "Our experts". Whole words, any
+# case. "leading" and "best" are left out -- too common as ordinary words
+# ("leading to cracks", "the best time to...").
+SOFT_CLAIM_WORDS = (
+    "experienced",
+    "expert",
+    "experts",
+    "expertise",
+    "skilled",
+    "proficient",
+    "seasoned",
+    "knowledgeable",
+    "qualified",
+    "certified",
+    "licensed",
+    "renowned",
+    "top-notch",
+    "top-rated",
+    "trusted",
+    "guaranteed",
+)
+_SOFT_CLAIM = re.compile(
+    r"(?<![\w-])(" + "|".join(re.escape(w) for w in SOFT_CLAIM_WORDS) + r")(?![\w-])",
+    re.IGNORECASE,
+)
+
+# Spin density: the share of sentences that must hold at least one spintax
+# group. The prompt asked for "most sentences" and live 2026-11-06 a spin
+# came back with 12 groups (34 in an earlier run).
+SPIN_MIN_SENTENCE_COVERAGE = 0.9
 
 # FAQ answer generation: one initial call plus up to two retries, each retry
 # asking only for the questions still blank.
@@ -223,6 +266,136 @@ def count_rendered_words(text: str) -> int:
     return len(render_spintax_min(text).split())
 
 
+def find_soft_claims(text: str) -> list[str]:
+    """The SOFT_CLAIM_WORDS found in `text` (spintax alternatives
+    included), lowercased, sorted, each once."""
+    return sorted({m.group(1).lower() for m in _SOFT_CLAIM.finditer(text)})
+
+
+def _split_sentences(text: str) -> list[str]:
+    """Splits text into pieces that join back to exactly `text`: each
+    sentence followed by its own trailing whitespace (paragraph breaks
+    included). A sentence ends at . ! or ? followed by whitespace, never
+    inside a {...} group, and never before a lowercase word -- live
+    2026-11-09 "Systems of Illinois, Inc. proudly serves..." is one
+    sentence."""
+    pieces: list[str] = []
+    start = depth = 0
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth = max(depth - 1, 0)
+        elif ch in ".!?" and depth == 0 and i + 1 < len(text) and text[i + 1].isspace():
+            end = i + 1
+            while end < len(text) and text[end].isspace():
+                end += 1
+            if end < len(text) and text[end].islower():
+                i = end
+                continue
+            pieces.append(text[start:end])
+            start = i = end
+            continue
+        i += 1
+    if start < len(text):
+        pieces.append(text[start:])
+    return pieces
+
+
+def spin_coverage(text: str) -> tuple[int, int]:
+    """(sentences holding at least one spintax group, all sentences) for
+    spun text. Punctuation inside an alternative never splits a
+    sentence."""
+    sentences = [s for s in _split_sentences(text) if s.strip()]
+    return sum(1 for s in sentences if _SPINTAX_GROUP.search(s)), len(sentences)
+
+
+def _render_first(text: str) -> str:
+    """Resolves every spintax group to its first option -- for a faithful
+    spin, the original wording."""
+    previous = None
+    while previous != text:
+        previous = text
+        text = _SPINTAX_GROUP.sub(lambda m: m.group(1).split("|")[0], text)
+    return text
+
+
+def _spin_unspun_sentences(text: str, max_tokens: int) -> str:
+    """One top-up call for the sentences of spun `text` that hold no
+    spintax group: the model returns each with a group added, and a reply
+    is spliced in only if its first options give back the original
+    sentence word for word, it renders no shorter and it adds no soft
+    claim. Anything else keeps the original sentence. A failed call keeps
+    `text` as it is (it was already a complete spin)."""
+    pieces = _split_sentences(text)
+    unspun = [
+        i for i, p in enumerate(pieces) if p.strip() and not _SPINTAX_GROUP.search(p)
+    ]
+    if not unspun:
+        return text
+    originals = [pieces[i].strip() for i in unspun]
+    numbered = "\n".join(f"{n}. {s}" for n, s in enumerate(originals, 1))
+    prompt = f"""Add SPINTAX to each numbered sentence below. Do NOT rewrite the
+sentences: copy each one exactly, word for word, and only wrap some of its
+words in curly-brace groups of alternatives.
+
+EXAMPLE
+Input:  We repair cracked basement walls in Naperville.
+Output: We {{repair|fix|restore}} {{cracked|damaged}} basement walls in Naperville.
+
+RULES:
+1. Each sentence gets at least one {{a|b|c}} group (two for long
+   sentences), 2-3 options per group, no nested braces.
+2. The FIRST option of every group is the sentence's original wording,
+   exactly as written; leave everything outside the groups unchanged --
+   no added or removed words.
+3. Every other option has AT LEAST as many words as the original wording.
+4. Never add a claim: no "experienced", "expert", "skilled", "proficient",
+   "seasoned", "trusted", "guaranteed" or similar.
+
+Return JSON: {{"sentences": ["<sentence 1 with groups>", "<sentence 2 with groups>", ...]}}
+with exactly {len(originals)} entries, in order.
+
+SENTENCES:
+{numbered}"""
+    try:
+        reply = _call_openai(
+            system_message=(
+                "You are a professional SEO copywriter who adds spintax "
+                "variations to single sentences without changing them."
+            ),
+            prompt=prompt,
+            max_tokens=max_tokens,
+            json_mode=True,
+        )
+    except AiContentError:
+        return text
+    entries = _parse_json_object(reply).get("sentences")
+    if not isinstance(entries, list):
+        return text
+    for index, original, entry in zip(unspun, originals, entries):
+        if not isinstance(entry, str) or not _SPINTAX_GROUP.search(entry):
+            continue
+        spun = entry.strip()
+        if (
+            _render_first(spun).split() != original.split()
+            or count_rendered_words(spun) < len(original.split())
+            or set(find_soft_claims(spun)) - set(find_soft_claims(original))
+        ):
+            continue
+        piece = pieces[index]
+        trailing = piece[len(piece.rstrip()) :]
+        leading = piece[: len(piece) - len(piece.lstrip())]
+        pieces[index] = leading + spun + trailing
+    return "".join(pieces)
+
+
+def _quoted(words: list[str]) -> str:
+    return ", ".join(f'"{w}"' for w in words)
+
+
 def _format_list(items: list, fallback: str) -> str:
     cleaned = [item.strip() for item in items if item.strip()]
     return ", ".join(cleaned) if cleaned else fallback
@@ -321,15 +494,20 @@ def generate_diagram_content(
 
     1. A PLAIN article (no spintax), DIAGRAM_CONTENT_PARAGRAPHS paragraphs
        aiming for DIAGRAM_CONTENT_TARGET_WORDS. Its word count is checked in
-       code; under DIAGRAM_CONTENT_PROMPT_MIN_WORDS it is rewritten with
-       feedback, up to DIAGRAM_CONTENT_MAX_ATTEMPTS calls, keeping the
-       longest.
+       code; under DIAGRAM_CONTENT_PROMPT_MIN_WORDS, or holding a soft
+       claim (find_soft_claims), it is rewritten with feedback, up to
+       DIAGRAM_CONTENT_MAX_ATTEMPTS calls, keeping the best (over the
+       floor, then claim-free, then longest).
     2. A spin pass over that article: each original phrase stays as the
        first option and every alternative is at least as long, so the
        rendered length (shortest option of every group) stays near the
-       plain article's. A spun result under MIN_DIAGRAM_CONTENT_WORDS, or
-       one that renders much shorter than the plain article, is spun again
-       (DIAGRAM_SPIN_MAX_ATTEMPTS calls); the longest spun version is kept.
+       plain article's. A spun result under MIN_DIAGRAM_CONTENT_WORDS, one
+       that renders much shorter than the plain article, or one that adds a
+       soft claim is spun again (DIAGRAM_SPIN_MAX_ATTEMPTS calls); the best
+       spun version is kept.
+    3. If fewer than SPIN_MIN_SENTENCE_COVERAGE of its sentences hold a
+       spintax group, one top-up call spins just those sentences
+       (_spin_unspun_sentences).
 
     If every attempt is short, the longest result is returned rather than
     raised, so the caller can show the real count (count_rendered_words) and
@@ -374,27 +552,39 @@ Return ONLY the content. No preamble, no explanations."""
         "web copy for local-business supporting websites."
     )
 
+    # Drafts are ranked: over the hard floor first, then free of soft
+    # claims, then longest.
     article = ""
     article_words = -1
+    article_rank: tuple[bool, bool, int] = (False, False, -1)
     prompt = article_prompt
     for _ in range(DIAGRAM_CONTENT_MAX_ATTEMPTS):
         draft = _call_openai(
             system_message=article_system, prompt=prompt, max_tokens=max_tokens
         )
         words = count_rendered_words(draft)
-        if words > article_words:
-            article, article_words = draft, words
-        if words >= DIAGRAM_CONTENT_PROMPT_MIN_WORDS:
+        claims = find_soft_claims(draft)
+        rank = (words >= MIN_DIAGRAM_CONTENT_WORDS, not claims, words)
+        if rank > article_rank:
+            article, article_words, article_rank = draft, words, rank
+        if words >= DIAGRAM_CONTENT_PROMPT_MIN_WORDS and not claims:
             break
-        prompt = (
-            article_prompt
-            + f"\n\nIMPORTANT: a previous draft was only {words} words, below "
-            f"the required minimum of {DIAGRAM_CONTENT_PROMPT_MIN_WORDS}. Write "
-            f"all {DIAGRAM_CONTENT_PARAGRAPHS} paragraphs at "
-            f"{DIAGRAM_CONTENT_PARAGRAPH_WORDS} words each, about "
-            f"{DIAGRAM_CONTENT_TARGET_WORDS} words in total -- more detail, "
-            "not repetition."
-        )
+        prompt = article_prompt
+        if words < DIAGRAM_CONTENT_PROMPT_MIN_WORDS:
+            prompt += (
+                f"\n\nIMPORTANT: a previous draft was only {words} words, below "
+                f"the required minimum of {DIAGRAM_CONTENT_PROMPT_MIN_WORDS}. Write "
+                f"all {DIAGRAM_CONTENT_PARAGRAPHS} paragraphs at "
+                f"{DIAGRAM_CONTENT_PARAGRAPH_WORDS} words each, about "
+                f"{DIAGRAM_CONTENT_TARGET_WORDS} words in total -- more detail, "
+                "not repetition."
+            )
+        if claims:
+            prompt += (
+                f"\n\nIMPORTANT: a previous draft used {_quoted(claims)} -- claims "
+                "the facts above do not support. Do not use those words or any "
+                "other description of the team's skill or experience."
+            )
 
     # Step 2: spin it without shortening it.
     spin_prompt = f"""Add SPINTAX to the article below so it can auto-spin unique
@@ -402,9 +592,9 @@ variations per page.
 
 RULES:
 1. Wrap natural word/phrase alternatives in curly braces separated by pipes,
-   e.g. "{{provides|offers|delivers}}". Most
-   sentences should contain at least one {{a|b|c}} group, with 2-3 options
-   per group.
+   e.g. "{{provides|offers|delivers}}". EVERY
+   sentence must contain at least one {{a|b|c}} group (longer sentences two
+   or more), with 2-3 options per group.
 2. The FIRST option of every group is the article's original wording,
    exactly as written.
 3. Every other option must have AT LEAST as many words as the original
@@ -415,6 +605,7 @@ RULES:
    headings, no nested braces.
 6. An alternative must never add a claim the original wording does not make:
    no "leading", "trusted", "renowned", "top-notch", "experienced", "expert",
+   "skilled", "proficient", "seasoned", "knowledgeable", "qualified",
    "guaranteed" or similar unless the original already says it.
 
 OUTPUT FORMAT:
@@ -429,18 +620,36 @@ ARTICLE:
 
     # A spin pass that drops text renders well below the plain article;
     # 95% of it (and the floor) is what a faithful pass should reach.
+    # A spin is also redone when it adds a soft claim the article does not
+    # make; ranked like the drafts. Re-spinning the whole article did not
+    # raise density (live 2026-11-09: 18 of 46 sentences, twice), so
+    # sentences left unspun get one top-up call instead.
     good_enough = max(MIN_DIAGRAM_CONTENT_WORDS, int(article_words * 0.95))
+    article_claims = set(find_soft_claims(article))
     best = ""
-    best_words = -1
+    best_rank: tuple[bool, bool, int] = (False, False, -1)
+    prompt = spin_prompt
     for _ in range(DIAGRAM_SPIN_MAX_ATTEMPTS):
         spun = _call_openai(
-            system_message=spin_system, prompt=spin_prompt, max_tokens=max_tokens
+            system_message=spin_system, prompt=prompt, max_tokens=max_tokens
         )
         words = count_rendered_words(spun)
-        if words > best_words:
-            best, best_words = spun, words
-        if words >= good_enough:
+        added = [c for c in find_soft_claims(spun) if c not in article_claims]
+        spin_rank = (words >= MIN_DIAGRAM_CONTENT_WORDS, not added, words)
+        if spin_rank > best_rank:
+            best, best_rank = spun, spin_rank
+        if words >= good_enough and not added:
             break
+        prompt = spin_prompt
+        if added:
+            prompt += (
+                f"\n\nIMPORTANT: a previous attempt added {_quoted(added)} -- "
+                "claims the article does not make. Never use those words."
+            )
+
+    spun_sentences, sentences = spin_coverage(best)
+    if spun_sentences < SPIN_MIN_SENTENCE_COVERAGE * sentences:
+        best = _spin_unspun_sentences(best, max_tokens)
     return best
 
 
