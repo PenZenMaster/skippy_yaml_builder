@@ -4,7 +4,7 @@ Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-11-09_1611.md`
 Last session: 2026-11-09
 Branch: main | Version: 1.5.1 (tagged `v1.5.1`) + unreleased batch mode, pushed
 
-**2026-11-09 (afternoon)**: Diagram Content soft-claim checks + spintax
+**2026-11-09 (afternoon, shutdown)**: Diagram Content soft-claim checks + spintax
 top-up for unspun sentences (`66f4fc7`; live: coverage 85% -> 98%, claims
 removed). Released **v1.5.0** (`f6c105e`) and **v1.5.1** (`60f270f`: the
 one-file exe now finds the sibling `.env` files, README and profiles via
