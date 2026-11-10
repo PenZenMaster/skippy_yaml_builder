@@ -613,3 +613,228 @@ def test_batch_position_option_reaches_draft_stack(monkeypatch):
 
     assert code == 1
     assert seen["batch_position"] == 3
+
+
+# --------------------------------------------------------------------------
+# Batch mode (--workbook)
+# --------------------------------------------------------------------------
+
+
+def _plan(*keywords):
+    from stack_plan import PlanRow
+
+    return [PlanRow(i + 2, kw) for i, kw in enumerate(keywords)]
+
+
+def _batch_source(tmp_path, images=40):
+    urls = [f"https://uss.example/img-{i}.jpg" for i in range(1, images + 1)]
+    source = tmp_path / "batch-source.yaml"
+    source.write_text(
+        yaml.dump(_client_file(**{"Content Image URLs (one per line)": urls})),
+        encoding="utf-8",
+    )
+    return source, urls
+
+
+def _run_batch(env, items, source, services=None, **kwargs):
+    return autobuild.run_batch(
+        "United Structural Systems",
+        items,
+        from_file=source,
+        client_root=env["root"],
+        jobs_dir=env["jobs"],
+        manifest=env["manifest"],
+        services=services or _services(),
+        stamp="2026-11-09-1500",
+        **kwargs,
+    )
+
+
+def test_plan_batch_positions_and_rotation():
+    items = autobuild.plan_batch(_plan("a", "b", "c"), ["111", "222"])
+
+    assert [(i.keyword, i.position, i.variant, i.tier1_accounts) for i in items] == [
+        ("a", 0, "default", None),
+        ("b", 1, "default", None),
+        ("c", 2, "default", None),
+        ("a", 3, "rotate", "111"),
+        ("b", 4, "rotate", "222"),
+        ("c", 5, "rotate", "111"),
+    ]
+
+
+def test_plan_batch_without_rotation_is_one_stack_per_keyword():
+    items = autobuild.plan_batch(_plan("a", "b"))
+    assert [i.variant for i in items] == ["default", "default"]
+
+
+def test_replace_tier1_accounts_keeps_other_tiers():
+    rows = [
+        {"tier": 1, "cloud_account_ids": "25398"},
+        {"tier": 2, "cloud_account_ids": "27504,25701"},
+    ]
+
+    new_rows = autobuild.replace_tier1_accounts(rows, "11883")
+
+    assert new_rows == [
+        {"tier": 1, "cloud_account_ids": "11883"},
+        {"tier": 2, "cloud_account_ids": "27504,25701"},
+    ]
+    assert rows[0]["cloud_account_ids"] == "25398"  # input untouched
+
+
+def test_replace_tier1_accounts_needs_a_tier_1():
+    with pytest.raises(autobuild.AutobuildError, match="no Tier 1"):
+        autobuild.replace_tier1_accounts([{"tier": 2, "cloud_account_ids": "1"}], "2")
+
+
+def test_parse_account_list():
+    assert autobuild.parse_account_list(" 27504, 25701,,14308 ") == [
+        "27504",
+        "25701",
+        "14308",
+    ]
+
+
+def _job(n_images, hero=True, logo=True):
+    job = {"content_image_urls": [f"u{i}" for i in range(n_images)]}
+    if hero:
+        job["hero_image_url"] = "h"
+    if logo:
+        job["logo_image_url"] = "l"
+    return job
+
+
+def test_image_upload_count_matches_the_factory():
+    assert autobuild.image_upload_count(_job(14)) == 16
+    assert autobuild.image_upload_count({"content_image_url": "x"}) == 0
+
+
+def test_split_by_upload_budget():
+    jobs = [_job(14) for _ in range(24)]  # 16 uploads each
+
+    groups = autobuild.split_by_upload_budget(jobs, 300)
+
+    assert [len(g) for g in groups] == [18, 6]
+
+
+def test_split_puts_an_oversized_job_on_its_own():
+    groups = autobuild.split_by_upload_budget([_job(1), _job(40), _job(1)], 20)
+    assert [len(g) for g in groups] == [1, 1, 1]
+
+
+def test_write_batch_files_refuses_to_overwrite(tmp_path):
+    paths = autobuild.write_batch_files([_job(1)], "uss", 300, tmp_path, "s")
+    assert [p.name for p in paths] == ["uss-batch-s-1.json"]
+    with pytest.raises(autobuild.AutobuildError, match="already exists"):
+        autobuild.write_batch_files([_job(1)], "uss", 300, tmp_path, "s")
+
+
+def test_run_batch_drafts_both_variants(env, tmp_path):
+    source, urls = _batch_source(tmp_path)
+    items = autobuild.plan_batch(
+        _plan("helical piers", "crack repair"), ["11883", "11884"]
+    )
+
+    batch = _run_batch(env, items, source)
+
+    assert batch.failed == []
+    jobs = {i.result.job_id: i.result.job for i in batch.items}
+    base = "united-structural-systems-"
+    assert sorted(jobs) == sorted(
+        [
+            base + "helical-piers",
+            base + "crack-repair",
+            base + "helical-piers-02",
+            base + "crack-repair-02",
+        ]
+    )
+    rotated = jobs[base + "helical-piers-02"]
+    assert rotated["directory"] == "helical-piers-2"
+    assert rotated["tiers"][0]["cloud_account_ids"] == ["11883"]
+    assert jobs[base + "crack-repair-02"]["tiers"][0]["cloud_account_ids"] == ["11884"]
+    assert jobs[base + "helical-piers"]["directory"] == "helical-piers"
+    assert jobs[base + "helical-piers"]["tiers"][0]["cloud_account_ids"] == ["25398"]
+    # Positions 0..3 -> consecutive 14-image slices of the 40, wrapping.
+    assert jobs[base + "helical-piers"]["content_image_urls"] == urls[0:14]
+    assert jobs[base + "crack-repair"]["content_image_urls"] == urls[14:28]
+    assert (
+        jobs[base + "helical-piers-02"]["content_image_urls"] == urls[28:40] + urls[0:2]
+    )
+    # Every stack written, plus one batch file (4 x 15 = 60 uploads).
+    stack_files = [
+        p for p in env["jobs"].glob(base + "*.json") if "-batch-" not in p.name
+    ]
+    assert len(stack_files) == 4
+    assert [p.name for p in batch.batch_files] == [
+        "united-structural-systems-batch-2026-11-09-1500-1.json"
+    ]
+    written = json.loads(batch.batch_files[0].read_text(encoding="utf-8"))
+    assert [job["job_id"] for job in written] == [i.result.job_id for i in batch.items]
+
+
+def test_run_batch_splits_batch_files_by_budget(env, tmp_path):
+    source, _ = _batch_source(tmp_path)
+    items = autobuild.plan_batch(_plan("helical piers", "crack repair", "underpinning"))
+
+    batch = _run_batch(env, items, source, upload_budget=40, workers=1)
+
+    assert len(batch.batch_files) == 2  # 15 + 15 fit 40; the third does not
+
+
+def test_run_batch_keeps_going_after_a_failure(env, tmp_path):
+    source, _ = _batch_source(tmp_path)
+    services = _services()
+    good_content = services.generate_content
+
+    def content(**kwargs):
+        if kwargs["target_keyword"] == "crack repair":
+            raise RuntimeError("AI down")
+        return good_content(**kwargs)
+
+    services.generate_content = content
+    items = autobuild.plan_batch(_plan("helical piers", "crack repair"))
+
+    batch = _run_batch(env, items, source, services=services)
+
+    assert [i.keyword for i in batch.failed] == ["crack repair"]
+    assert "AI down" in batch.failed[0].error
+    assert [i.keyword for i in batch.drafted] == ["helical piers"]
+    assert "FAILED" in autobuild.batch_summary(batch, 300)
+
+
+def test_run_batch_refuses_keywords_with_the_same_slug(env, tmp_path):
+    source, _ = _batch_source(tmp_path)
+    items = autobuild.plan_batch(_plan("crack repair", "crack-repair"))
+
+    with pytest.raises(autobuild.AutobuildError, match="same job id"):
+        _run_batch(env, items, source)
+
+
+def test_batch_summary_lists_factory_commands(env, tmp_path):
+    source, _ = _batch_source(tmp_path)
+    batch = _run_batch(env, autobuild.plan_batch(_plan("helical piers")), source)
+
+    text = autobuild.batch_summary(batch, 300)
+
+    assert "Drafted 1 of 1 stack(s)." in text
+    # The test client has a hero image but no logo: 1 + 14 uploads.
+    assert "(1 stack(s), 15 of 300 uploads)" in text
+    assert "npm run dev -- run --file jobs/united-structural-systems-batch-" in text
+
+
+@pytest.mark.parametrize(
+    "argv, message",
+    [
+        (["--keyword", "x", "--tier1-rotate", "1"], "--tier1-rotate only works"),
+        (["--keyword", "x", "--sheet", "Plan"], "--sheet only works"),
+        (["--workbook", "w.xlsx", "--submit"], "--submit cannot be used"),
+        (["--workbook", "w.xlsx", "--landing-url", "https://a.b/"], "--landing-url"),
+        (["--workbook", "w.xlsx", "--tier1-rotate", " , "], "at least one"),
+        (["--workbook", "w.xlsx", "--keyword", "x"], "not allowed with"),
+    ],
+)
+def test_batch_flag_checks(argv, message, capsys):
+    with pytest.raises(SystemExit):
+        autobuild.main(["--client", "c", *argv])
+    assert message in capsys.readouterr().err

@@ -44,6 +44,12 @@ Comments:
 - v1.02 --batch-position N: the stack's place in a batch, so each stack
   of a batch gets its own slice of the client's Content Image URLs (one
   image per page; job_export.select_content_images).
+- v1.03 Batch mode: --workbook reads the keywords from the playbook's
+  Stack Plan tab (stack_plan.py) and drafts one stack per keyword, 4 at a
+  time (--workers); --tier1-rotate adds a second stack per keyword with
+  Tier 1 rotating across the given cloud accounts and the folder ending
+  in -2. Each stack gets its own batch position. Then writes factory batch
+  files split to fit YACSS's daily image-upload limit (--upload-budget).
 """
 
 import argparse
@@ -52,8 +58,11 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 from collections.abc import Callable, Mapping
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -401,6 +410,32 @@ def _lines(value: Any) -> list[str]:
     return [line.strip() for line in str(value or "").splitlines() if line.strip()]
 
 
+def replace_tier1_accounts(rows: Any, accounts: str) -> list[dict[str, Any]]:
+    """A copy of the "YACSS Diagram Tier Cloud Account IDs" rows with Tier
+    1's accounts replaced by `accounts`. Raises AutobuildError when there is
+    no Tier 1 row (nothing to replace)."""
+    new_rows: list[dict[str, Any]] = []
+    found = False
+    for row in rows if isinstance(rows, list) else []:
+        if isinstance(row, Mapping):
+            row = dict(row)
+            if row.get("tier") == 1:
+                row["cloud_account_ids"] = accounts
+                found = True
+        new_rows.append(row)
+    if not found:
+        raise AutobuildError(
+            "The stack profile has no Tier 1 cloud accounts to replace "
+            "(YACSS Diagram Tier Cloud Account IDs)"
+        )
+    return new_rows
+
+
+def parse_account_list(text: str) -> list[str]:
+    """'27504, 25701,14308' -> ['27504', '25701', '14308']."""
+    return [part.strip() for part in text.split(",") if part.strip()]
+
+
 # --------------------------------------------------------------------------
 # The pipeline
 # --------------------------------------------------------------------------
@@ -420,6 +455,8 @@ def draft_stack(
     services: Services | None = None,
     log: Callable[[str], None] = lambda _msg: None,
     batch_position: int = 0,
+    tier1_accounts: str | None = None,
+    stack_folder_suffix: str = "",
 ) -> AutobuildResult:
     """Runs every step and returns the drafted client data and job without
     writing anything (see write_outputs). `landing_url`, when given,
@@ -429,8 +466,12 @@ def draft_stack(
     topic); by default it is read from the landing page's address
     (link_topic_from_url). `batch_position` is this stack's place in a
     batch (0 for a single stack): it picks which slice of the client's
-    Content Image URLs the stack gets. Raises AutobuildError (or the
-    research/AI module's own error) on any failure."""
+    Content Image URLs the stack gets. `tier1_accounts` (comma-separated
+    cloud account ids) replaces the profile's Tier 1 accounts for this
+    stack. `stack_folder_suffix` is added to the pinned-bucket folder name
+    (keyword + suffix), so a second stack for the same keyword gets its own
+    folder; it has no effect on an unpinned stack. Raises AutobuildError
+    (or the research/AI module's own error) on any failure."""
     services = services or Services()
     keyword = " ".join(keyword.split())
     if not keyword:
@@ -460,6 +501,10 @@ def draft_stack(
     website = landing_url or str(client_data.get("* Website") or "")
     service = (link_topic or "").strip() or link_topic_from_url(website, keyword)
     data = stack_profile.apply_profile(client_data, profile, keyword, service)
+    if tier1_accounts is not None:
+        data[job_export.TIER_ACCOUNTS_FIELD] = replace_tier1_accounts(
+            data.get(job_export.TIER_ACCOUNTS_FIELD), tier1_accounts
+        )
     if landing_url:
         data["* Website"] = landing_url
     for phone_field in ("* Phone", "Broker Phone"):
@@ -478,6 +523,8 @@ def draft_stack(
     # its folder (would collide in the pinned bucket) and job id.
     data["YACSS Job ID (override)"] = job_id
     data["YACSS Stack Folder"] = ""
+    if stack_folder_suffix and str(data.get("YACSS Pinned Bucket") or "").strip():
+        data["YACSS Stack Folder"] = job_export.slugify(keyword) + stack_folder_suffix
 
     tier0 = int(str(data.get("YACSS Tier0 Pages") or "0").strip() or "0")
     tiers = job_export.parse_tier_lines(
@@ -743,6 +790,254 @@ def submit(
     return 0
 
 
+# --------------------------------------------------------------------------
+# Batch mode (--workbook)
+# --------------------------------------------------------------------------
+
+DEFAULT_WORKERS = 4
+# YACSS's image uploads per rolling 24 hours (rr_yacss_factory's
+# YACSS_DAILY_UPLOAD_BUDGET default).
+DEFAULT_UPLOAD_BUDGET = 300
+ROTATE_FOLDER_SUFFIX = "-2"
+
+
+@dataclass
+class BatchItem:
+    """One stack of a batch: what to draft, and how it went."""
+
+    keyword: str
+    position: int
+    variant: str  # "default" or "rotate"
+    landing_url: str | None = None
+    link_topic: str | None = None
+    tier1_accounts: str | None = None
+    result: AutobuildResult | None = None
+    error: str | None = None
+
+    @property
+    def label(self) -> str:
+        tier = f", Tier 1 {self.tier1_accounts}" if self.tier1_accounts else ""
+        return f"{self.keyword!r} ({self.variant}{tier})"
+
+
+@dataclass
+class BatchResult:
+    items: list[BatchItem]
+    batch_files: list[Path] = field(default_factory=list)
+
+    @property
+    def failed(self) -> list[BatchItem]:
+        return [item for item in self.items if item.error is not None]
+
+    @property
+    def drafted(self) -> list[BatchItem]:
+        return [item for item in self.items if item.result is not None]
+
+
+def plan_batch(
+    plan: list[Any], tier1_rotate: list[str] | None = None
+) -> list[BatchItem]:
+    """The stacks to draft: one per plan row with the profile as it is,
+    then (with tier1_rotate) a second per row with Tier 1 on
+    tier1_rotate[i % len]. Batch positions run 0, 1, 2... across both
+    passes, so every stack starts on different content images."""
+    items = [
+        BatchItem(
+            keyword=row.keyword,
+            position=i,
+            variant="default",
+            landing_url=row.landing_url,
+            link_topic=row.link_topic,
+        )
+        for i, row in enumerate(plan)
+    ]
+    if tier1_rotate:
+        items += [
+            BatchItem(
+                keyword=row.keyword,
+                position=len(plan) + i,
+                variant="rotate",
+                landing_url=row.landing_url,
+                link_topic=row.link_topic,
+                tier1_accounts=tier1_rotate[i % len(tier1_rotate)],
+            )
+            for i, row in enumerate(plan)
+        ]
+    return items
+
+
+def image_upload_count(job: Mapping[str, Any]) -> int:
+    """Uploads rr_yacss_factory makes for this job: hero, logo and each
+    per-page content image (content_image_url is sent as a URL, not
+    uploaded). Same count as the factory's src/engine/upload-budget.ts."""
+    return (
+        (1 if job.get("hero_image_url") else 0)
+        + (1 if job.get("logo_image_url") else 0)
+        + len(job.get("content_image_urls") or [])
+    )
+
+
+def split_by_upload_budget(
+    jobs: list[dict[str, Any]], budget: int
+) -> list[list[dict[str, Any]]]:
+    """Consecutive groups of jobs, each needing at most `budget` uploads.
+    A job needing more than the budget on its own gets a group of its own
+    (the factory will refuse it and say why)."""
+    groups: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] = []
+    used = 0
+    for job in jobs:
+        uploads = image_upload_count(job)
+        if current and used + uploads > budget:
+            groups.append(current)
+            current, used = [], 0
+        current.append(job)
+        used += uploads
+    if current:
+        groups.append(current)
+    return groups
+
+
+def write_batch_files(
+    jobs: list[dict[str, Any]],
+    name: str,
+    budget: int,
+    jobs_dir: Path = FACTORY_JOBS_DIR,
+    stamp: str | None = None,
+) -> list[Path]:
+    """Writes the jobs as factory batch files
+    <name>-batch-<stamp>-1.json, -2.json..., each under the upload budget.
+    Refuses to overwrite an existing file."""
+    stamp = stamp or datetime.now().strftime("%Y-%m-%d-%H%M")
+    groups = split_by_upload_budget(jobs, budget)
+    paths = [
+        jobs_dir / f"{name}-batch-{stamp}-{n}.json" for n in range(1, len(groups) + 1)
+    ]
+    for path in paths:
+        if path.exists():
+            raise AutobuildError(f"{path} already exists -- not overwriting it")
+    jobs_dir.mkdir(parents=True, exist_ok=True)
+    for path, group in zip(paths, groups):
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(group, f, indent=2, ensure_ascii=False)
+    return paths
+
+
+def run_batch(
+    client: str,
+    items: list[BatchItem],
+    *,
+    workers: int = DEFAULT_WORKERS,
+    upload_budget: int = DEFAULT_UPLOAD_BUDGET,
+    from_file: Path | None = None,
+    profile_path: Path = stack_profile.DEFAULT_PROFILE,
+    client_root: Path = CLIENT_YAML_DIR,
+    jobs_dir: Path = FACTORY_JOBS_DIR,
+    manifest: Path = FACTORY_MANIFEST,
+    services: Services | None = None,
+    log: Callable[[str], None] = lambda _msg: None,
+    stamp: str | None = None,
+) -> BatchResult:
+    """Drafts and writes every item, `workers` at a time. The default
+    stacks all finish before the rotate stacks start, so a rotate stack's
+    job id is the default one's plus -02. A failed item is recorded (its
+    error kept) and the rest carry on. Finally writes the factory batch
+    files for the drafted stacks, in item order, split by upload_budget."""
+    services = services or Services()
+    client_dir = find_client_dir(client, client_root)
+    slugs: dict[str, str] = {}
+    for item in items:
+        slug = job_export.slugify(item.keyword)
+        if slugs.setdefault(slug, item.keyword).casefold() != item.keyword.casefold():
+            raise AutobuildError(
+                f"Keywords {slugs[slug]!r} and {item.keyword!r} give the same "
+                f"job id and folder ({slug}) -- change one"
+            )
+    lock = threading.Lock()
+
+    def item_log(item: BatchItem) -> Callable[[str], None]:
+        def write(msg: str) -> None:
+            with lock:
+                log(f"[{item.keyword} / {item.variant}] {msg}")
+
+        return write
+
+    def draft_one(item: BatchItem) -> None:
+        try:
+            result = draft_stack(
+                client,
+                item.keyword,
+                from_file=from_file,
+                landing_url=item.landing_url,
+                link_topic=item.link_topic,
+                profile_path=profile_path,
+                client_root=client_root,
+                jobs_dir=jobs_dir,
+                manifest=manifest,
+                services=services,
+                log=item_log(item),
+                batch_position=item.position,
+                tier1_accounts=item.tier1_accounts,
+                stack_folder_suffix=(
+                    ROTATE_FOLDER_SUFFIX if item.variant == "rotate" else ""
+                ),
+            )
+            with lock:  # job id picked and files claimed together
+                write_outputs(result)
+            item.result = result
+        except Exception as e:  # keep the batch going; reported at the end
+            item.error = f"{type(e).__name__}: {e}"
+            item_log(item)(f"FAILED: {item.error}")
+
+    for variant in ("default", "rotate"):
+        group = [item for item in items if item.variant == variant]
+        if not group:
+            continue
+        with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+            list(pool.map(draft_one, group))
+
+    batch = BatchResult(items=items)
+    jobs = [item.result.job for item in batch.drafted if item.result is not None]
+    if jobs:
+        batch.batch_files = write_batch_files(
+            jobs, client_dir.name.replace("_", "-"), upload_budget, jobs_dir, stamp
+        )
+    return batch
+
+
+def batch_summary(batch: BatchResult, budget: int) -> str:
+    lines = []
+    for item in batch.items:
+        if item.result is not None:
+            job = item.result.job
+            folder = job.get("directory") or "-"
+            tier1 = (
+                ",".join(job["tiers"][0]["cloud_account_ids"])
+                if job.get("tiers")
+                else "-"
+            )
+            lines.append(
+                f"OK      {item.result.job_id}  folder {folder}/  Tier 1 {tier1}  "
+                f"{len(job.get('page_titles', []))} titles, "
+                f"{item.result.content_words} words, "
+                f"{len(job.get('faqs', []))} FAQs, "
+                f"{len(item.result.warnings)} warning(s)"
+            )
+        else:
+            lines.append(f"FAILED  {item.label}: {item.error}")
+    lines.append(f"Drafted {len(batch.drafted)} of {len(batch.items)} stack(s).")
+    for path in batch.batch_files:
+        with open(path, encoding="utf-8") as f:
+            group = json.load(f)
+        uploads = sum(image_upload_count(job) for job in group)
+        lines.append(
+            f"Batch file: {path.name} ({len(group)} stack(s), {uploads} of "
+            f"{budget} uploads) -- run from rr_yacss_factory, one per 24 hours:"
+        )
+        lines.append(f"  npm run dev -- run --file jobs/{path.name}")
+    return "\n".join(lines)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Draft a YACSS Cloud Stack job from a client and a keyword. "
@@ -752,8 +1047,37 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--client", required=True, help='e.g. "United Structural Systems"'
     )
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--keyword", help='e.g. "commercial foundation repair"')
+    source.add_argument(
+        "--workbook",
+        type=Path,
+        help="batch mode: draft one stack per keyword in this playbook "
+        "workbook's Stack Plan tab",
+    )
     parser.add_argument(
-        "--keyword", required=True, help='e.g. "commercial foundation repair"'
+        "--sheet",
+        default=None,
+        help='with --workbook: the tab to read (default "Stack Plan")',
+    )
+    parser.add_argument(
+        "--tier1-rotate",
+        help="with --workbook: also draft a second stack per keyword with "
+        "Tier 1 on these cloud accounts in turn (comma-separated ids), "
+        "folder <keyword>-2",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=DEFAULT_WORKERS,
+        help=f"with --workbook: stacks drafted at once (default {DEFAULT_WORKERS})",
+    )
+    parser.add_argument(
+        "--upload-budget",
+        type=int,
+        default=DEFAULT_UPLOAD_BUDGET,
+        help="with --workbook: image uploads per factory batch file "
+        f"(default {DEFAULT_UPLOAD_BUDGET}, YACSS's limit per 24 hours)",
     )
     parser.add_argument(
         "--from", dest="from_file", type=Path, help="client file to use"
@@ -791,6 +1115,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    if args.workbook is not None:
+        return _main_batch(parser, args)
+    batch_only = {
+        "--sheet": args.sheet is not None,
+        "--tier1-rotate": args.tier1_rotate is not None,
+    }
+    for flag, given in batch_only.items():
+        if given:
+            parser.error(f"{flag} only works with --workbook")
+
     from ai_content_generator import AiContentError
     from keyword_research_api import KeywordResearchError
 
@@ -819,6 +1153,57 @@ def main(argv: list[str] | None = None) -> int:
     except AutobuildError as e:
         print(f"Submit stopped: {e}", file=sys.stderr)
         return 1
+
+
+def _main_batch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
+    for flag, given in {
+        "--landing-url": args.landing_url is not None,
+        "--link-topic": args.link_topic is not None,
+        "--batch-position": args.batch_position != 0,
+        "--submit": args.submit,
+    }.items():
+        if given:
+            parser.error(
+                f"{flag} cannot be used with --workbook (landing URL and link "
+                "topic come from the Stack Plan tab)"
+            )
+    if args.workers < 1:
+        parser.error("--workers must be at least 1")
+    if args.upload_budget < 1:
+        parser.error("--upload-budget must be at least 1")
+    rotate = parse_account_list(args.tier1_rotate or "")
+    if args.tier1_rotate is not None and not rotate:
+        parser.error("--tier1-rotate needs at least one cloud account id")
+
+    from stack_plan import DEFAULT_SHEET, StackPlanError, read_stack_plan
+
+    try:
+        plan = read_stack_plan(args.workbook, args.sheet or DEFAULT_SHEET)
+        items = plan_batch(plan, rotate or None)
+        print(
+            f"{len(plan)} keyword(s) from {args.workbook.name}: "
+            f"{len(items)} stack(s), {args.workers} at a time.",
+            flush=True,
+        )
+        batch = run_batch(
+            args.client,
+            items,
+            workers=args.workers,
+            upload_budget=args.upload_budget,
+            from_file=args.from_file,
+            profile_path=args.profile,
+            log=lambda msg: print(msg, flush=True),
+        )
+    except (AutobuildError, StackPlanError) as e:
+        print(f"Autobuild batch stopped: {e}", file=sys.stderr)
+        return 1
+    for item in batch.drafted:
+        if item.result is not None:
+            print()
+            print(summary(item.result))
+    print()
+    print(batch_summary(batch, args.upload_budget))
+    return 1 if batch.failed else 0
 
 
 if __name__ == "__main__":

@@ -445,6 +445,37 @@ the summary, then run the factory as usual. If any research or AI step
 fails, it stops and writes nothing. Keyword research and AI calls do cost
 DataForSEO/OpenAI credits on every run.
 
+### Batch mode: every keyword in the playbook's Stack Plan tab
+
+```
+venv/Scripts/python.exe autobuild.py --client "overheaddoor joliet" --workbook "D:/.../Overhead_Door_Joliet_Tier_3_Growth_SEO_Playbook.xlsx" --tier1-rotate 27504,25701,14308,11884,11883
+```
+
+The workbook needs a **Stack Plan** tab (`--sheet` for another name) with
+these headers in row 1; keywords start in row 2 and blank rows are skipped:
+
+| A | B | C | D | E | F | G |
+|---|---|---|---|---|---|---|
+| Keyword | Landing URL | Link Topic | GCS Job ID | GCS Stack Link | Other Cloud Job ID | Other Cloud Stack Link |
+
+Only A-C are read (B and C are optional: the page this keyword's stacks
+link to, and the topic named in the link sentence). D-G are for results.
+The workbook is never written.
+
+- One stack per keyword with the stack profile as it is, then, with
+  `--tier1-rotate`, a second stack per keyword with Tier 1 on the listed
+  accounts in turn, folder `<keyword>-2` and job id `...-02`.
+- Each stack gets its own slice of the client's Content Image URLs.
+- 4 stacks are drafted at a time (`--workers N`). A keyword that fails is
+  reported at the end; the others are still written.
+- After the stacks, it writes rr_yacss_factory batch files
+  `<client>-batch-<date-time>-1.json`, `-2.json`... each within the
+  300-upload daily limit (`--upload-budget`), and prints the factory
+  command for each. Run one batch file per 24 hours.
+
+`--landing-url`, `--link-topic`, `--batch-position` and `--submit` are for
+single stacks only.
+
 **`--submit`** goes one step further, through rr_yacss_factory, and still
 never passes `--confirm`:
 

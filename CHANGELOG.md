@@ -5,6 +5,22 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Autobuild batch mode** (`autobuild.py --client <client> --workbook
+  <playbook.xlsx>`). Reads the keywords from the playbook's **Stack Plan**
+  tab (columns A Keyword, B Landing URL, C Link Topic; D-G reserved for job
+  ids and stack links; new `stack_plan.py`, read-only) and drafts one stack
+  per keyword, 4 at a time (`--workers`). `--tier1-rotate 27504,25701,...`
+  adds a second stack per keyword with Tier 1 on those accounts in turn and
+  the pinned folder `<keyword>-2` (job id `...-02`) -- what the 2026-11-09
+  Overhead Door Joliet run did by hand. Every stack gets its own batch
+  position, so its own content images. A keyword that fails is reported and
+  the rest carry on. Finally it writes factory batch files
+  `<client>-batch-<date-time>-1.json`, `-2.json`... each within YACSS's
+  300 image uploads per 24 hours (`--upload-budget`), and prints the
+  factory command for each. New dependency: openpyxl.
+
 ## [1.5.1] - 2026-11-09
 
 ### Fixed
