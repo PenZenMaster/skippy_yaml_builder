@@ -1,8 +1,18 @@
 ## Resume From
 
-Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-11-09_1444.md`
+Checkpoint: `docs/archive/checkpoints/CheckPoint-2026-11-09_1611.md`
 Last session: 2026-11-09
-Branch: main | Version: 1.4.0 (tagged `v1.4.0`) + unreleased autobuild work, pushed
+Branch: main | Version: 1.5.1 (tagged `v1.5.1`) + unreleased batch mode, pushed
+
+**2026-11-09 (afternoon)**: Diagram Content soft-claim checks + spintax
+top-up for unspun sentences (`66f4fc7`; live: coverage 85% -> 98%, claims
+removed). Released **v1.5.0** (`f6c105e`) and **v1.5.1** (`60f270f`: the
+one-file exe now finds the sibling `.env` files, README and profiles via
+`app_paths.app_dir()`; `build_exe.bat` copies it to the repo root as
+`syb.exe`). Another session's **autobuild batch mode** (`--workbook`,
+`--tier1-rotate`, upload-budget batch files) committed as `8395e06` with
+its CHANGELOG merged by hand. 404/404 tests. **Next:** launch `syb.exe`
+and confirm the dropdowns fill; rerun Overhead Door Joliet via batch mode.
 
 **2026-11-09**: records two un-checkpointed 2026-11-06 commits plus
 today's fix. `autobuild --submit` (`b7bd829`) drafts the job in YACSS via
